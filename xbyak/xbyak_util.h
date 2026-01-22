@@ -940,6 +940,179 @@ namespace impl {
 #ifdef _WIN32
 inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
 {
+	typedef SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX processorInfo;
+
+	// Helper lambda to count set bits in a mask
+	auto countBits = [](KAFFINITY mask) -> int {
+#if defined(_M_X64) || defined(_M_AMD64)
+		return (int)__popcnt64(mask);
+#else
+		int count = 0;
+		while (mask) {
+			count += (mask & 1);
+			mask >>= 1;
+		}
+		return count;
+#endif
+	};
+
+	// First pass: Get processor core information
+	DWORD len = 0;
+	GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &len);
+	std::vector<uint8_t> coreBuffer(len);
+	if (!GetLogicalProcessorInformationEx(RelationProcessorCore,
+		reinterpret_cast<processorInfo*>(coreBuffer.data()), &len)) {
+		return;
+	}
+
+	// Count logical CPUs and identify core types
+	uint32_t maxCpuIndex = 0;
+	bool isHybrid = cpu.has(cpu.tHYBRID);
+	std::set<std::pair<uint32_t, uint32_t> > uniqueCores;
+	std::set<uint32_t> uniqueSockets;
+
+	// Map from logical CPU index to core info
+	struct CoreInfo {
+		uint32_t physicalId;
+		uint32_t coreId;
+		CoreType coreType;
+		KAFFINITY siblingMask;
+	};
+	std::vector<CoreInfo> coreInfoMap(XBYAK_MAX_CPU_NUM);
+
+	char* entryPtr = reinterpret_cast<char*>(coreBuffer.data());
+	const char* end = entryPtr + len;
+	uint32_t coreCounter = 0;
+
+	while (entryPtr < end) {
+		const processorInfo& entry = *reinterpret_cast<processorInfo*>(entryPtr);
+		if (entry.Relationship == RelationProcessorCore) {
+			const PROCESSOR_RELATIONSHIP& core = entry.Processor;
+
+			// Assume single group for simplicity (most systems)
+			KAFFINITY mask = core.GroupMask[0].Mask;
+
+			// Determine core type based on efficiency class
+			CoreType coreType = Standard;
+			if (isHybrid) {
+				if (core.EfficiencyClass > 0) {
+					coreType = Performance;
+				} else {
+					coreType = Efficient;
+				}
+			}
+
+			// Process each logical CPU in this core
+			for (int bit = 0; bit < 64; bit++) {
+				if (mask & (KAFFINITY(1) << bit)) {
+					uint32_t cpuIdx = bit;
+					if (cpuIdx >= XBYAK_MAX_CPU_NUM) continue;
+
+					maxCpuIndex = (cpuIdx > maxCpuIndex) ? cpuIdx : maxCpuIndex;
+
+					coreInfoMap[cpuIdx].physicalId = 0; // Windows doesn't easily expose socket ID
+					coreInfoMap[cpuIdx].coreId = coreCounter;
+					coreInfoMap[cpuIdx].coreType = coreType;
+					coreInfoMap[cpuIdx].siblingMask = mask;
+
+					uniqueSockets.insert(0);
+					uniqueCores.insert(std::make_pair(0, coreCounter));
+				}
+			}
+			coreCounter++;
+		}
+		entryPtr += entry.Size;
+	}
+	uint32_t numLogicalCpus = maxCpuIndex + 1;
+
+	// Initialize logical CPU array
+	cpuSet.logicalCpus_.resize(numLogicalCpus);
+	for (uint32_t i = 0; i < CACHE_TYPE_NUM; i++) {
+		cpuSet.caches_[i].resize(numLogicalCpus);
+	}
+
+	// Populate logical CPU information
+	for (uint32_t cpuIdx = 0; cpuIdx < numLogicalCpus; cpuIdx++) {
+		LogicalCpu& logCpu = cpuSet.logicalCpus_[cpuIdx];
+		logCpu.index = cpuIdx;
+		logCpu.physicalId = coreInfoMap[cpuIdx].physicalId;
+		logCpu.coreId = coreInfoMap[cpuIdx].coreId;
+		logCpu.coreType = coreInfoMap[cpuIdx].coreType;
+
+		// Set sibling indices
+		KAFFINITY siblingMask = coreInfoMap[cpuIdx].siblingMask;
+		for (int bit = 0; bit < numLogicalCpus && bit < 64; bit++) {
+			if (siblingMask & (KAFFINITY(1) << bit)) {
+				logCpu.siblingIndices.set(bit);
+			}
+		}
+	}
+
+	// Second pass: Get cache information
+	len = 0;
+	GetLogicalProcessorInformationEx(RelationCache, nullptr, &len);
+	std::vector<uint8_t> cacheBuffer(len);
+	if (!GetLogicalProcessorInformationEx(RelationCache,
+		reinterpret_cast<processorInfo*>(cacheBuffer.data()), &len)) {
+		cpuSet.physicalCoreNum_ = uniqueCores.size();
+		cpuSet.socketNum_ = uniqueSockets.size();
+		return;
+	}
+
+	entryPtr = reinterpret_cast<char*>(cacheBuffer.data());
+	end = entryPtr + len;
+
+	while (entryPtr < end) {
+		const processorInfo& entry = *reinterpret_cast<processorInfo*>(entryPtr);
+		if (entry.Relationship == RelationCache) {
+			const CACHE_RELATIONSHIP& cache = entry.Cache;
+			KAFFINITY mask = cache.GroupMask.Mask;
+
+			// Determine cache type
+			CacheType cacheType;
+			bool validCache = false;
+
+			if (cache.Level == 1) {
+				if (cache.Type == CacheInstruction) {
+					cacheType = L1i;
+					validCache = true;
+				} else if (cache.Type == CacheData) {
+					cacheType = L1d;
+					validCache = true;
+				}
+			} else if (cache.Level == 2) {
+				cacheType = L2;
+				validCache = true;
+			} else if (cache.Level == 3) {
+				cacheType = L3;
+				validCache = true;
+			}
+
+			if (validCache) {
+				// Apply this cache info to all logical CPUs in the mask
+				for (uint32_t cpuIdx = 0; cpuIdx < numLogicalCpus && cpuIdx < 64; cpuIdx++) {
+					if (mask & (KAFFINITY(1) << cpuIdx)) {
+						CpuCache& cpuCache = cpuSet.caches_[cacheType][cpuIdx];
+						cpuCache.size = cache.CacheSize;
+						cpuCache.lineSize = cache.LineSize;
+						cpuCache.associativity = cache.Associativity;
+						cpuCache.isShared = (countBits(mask) > 1);
+
+						// Set shared CPU indices
+						for (int bit = 0; bit < numLogicalCpus && bit < 64; bit++) {
+							if (mask & (KAFFINITY(1) << bit)) {
+								cpuCache.sharedCpuIndices.set(bit);
+							}
+						}
+					}
+				}
+			}
+		}
+		entryPtr += entry.Size;
+	}
+
+	cpuSet.physicalCoreNum_ = uniqueCores.size();
+	cpuSet.socketNum_ = uniqueSockets.size();
 }
 #elif __linux__ // Linux
 inline uint32_t readIntFromFile(const char* path) {
