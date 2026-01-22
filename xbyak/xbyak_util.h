@@ -86,6 +86,26 @@
 	#define XBYAK_USE_PERF
 #endif
 
+#define XBYAK_CPU_CACHE
+#ifdef XBYAK_CPU_CACHE
+#include <vector>
+#ifndef XBYAK_MAX_CPU_NUM
+	#define XBYAK_MAX_CPU_NUM 256
+#endif
+#ifdef _WIN32
+#include <windows.h>
+#endif
+namespace Xbyak { namespace util {
+class CpuSet;
+class Cpu;
+namespace impl {
+
+void initCpuSet(CpuSet& cpuSet, const Cpu& cpu);
+
+} // Xbyak::util::impl
+} } // Xbyak::util
+
+
 namespace Xbyak { namespace util {
 
 typedef enum {
@@ -761,6 +781,169 @@ public:
 #endif
 
 #ifndef XBYAK_ONLY_CLASS_CPU
+#ifdef XBYAK_CPU_CACHE
+
+enum CoreType {
+	Unknown,
+	Performance, // P-core (Intel)
+	Efficient, // E-core (Intel)
+	Standard // Non-hybrid
+};
+
+enum CacheType {
+	L1i,
+	L1d,
+	L2,
+	L3,
+	CACHE_TYPE_NUM
+};
+
+class CpuMask {
+	static const uint32_t N = XBYAK_MAX_CPU_NUM / 8;
+	uint8_t v_[N];
+public:
+	CpuMask() : v_() {}
+	class iterator {
+		uint32_t idx_;
+		const CpuMask& parent_;
+	public:
+		iterator(uint32_t idx, const CpuMask& parent) : idx_(idx), parent_(parent) {}
+		iterator& operator++()
+		{
+			idx_++;
+			return *this;
+		}
+		uint32_t operator*() const { return idx_; }
+		bool operator!=(const iterator& rhs) const { return idx_ != rhs.idx_; }
+	};
+	iterator begin() const
+	{
+		for (uint32_t i = 0; i < XBYAK_MAX_CPU_NUM; i++) {
+			if (get(i)) return iterator(i, *this);
+		}
+		return iterator(XBYAK_MAX_CPU_NUM, *this);
+	}
+	iterator end() const { return iterator(XBYAK_MAX_CPU_NUM, *this); }
+	bool get(uint32_t cpuIdx) const
+	{
+		if (cpuIdx >= XBYAK_MAX_CPU_NUM) return false;
+		return (v_[cpuIdx / 8] & (1 << (cpuIdx % 8))) != 0;
+	}
+	void set(uint32_t cpuIdx)
+	{
+		if (cpuIdx >= XBYAK_MAX_CPU_NUM) return;
+		v_[cpuIdx / 8] |= (1 << (cpuIdx % 8));
+	}
+	uint32_t size() const
+	{
+		uint32_t n = 0;
+		for (iterator itr = begin(), e = this->end(); itr != e; ++itr) {
+			if (*itr) n++;
+		}
+		return n;
+	}
+};
+
+class CpuCache {
+public:
+	// Cache size in bytes
+	uint32_t size;
+
+	// Cache line size in bytes
+	uint32_t lineSize;
+
+	// number of ways of associativity
+	uint32_t associativity;
+
+	// Whether this is a shared cache
+	bool isShared;
+
+	// Set of logical CPU indices sharing this cache
+	CpuMask sharedCpuIndices;
+
+	// Number of logical CPUs sharing this cache
+	size_t getSharedCpuNum() const { return sharedCpuIndices.size(); }
+};
+
+struct LogicalCpu {
+	LogicalCpu()
+		: index(0)
+		, physicalId(0)
+		, coreId(0)
+		, coreType(Unknown)
+		, siblingIndices()
+	{
+	}
+	// Logical CPU index in the system (0 to N-1)
+	uint32_t index;
+	// Physical package (socket) index
+	uint32_t physicalId;
+	// Physical core index within the socket
+	uint32_t coreId;
+	// Core type (for hybrid systems)
+	CoreType coreType;
+	// Sibling thread indices sharing the same physical core
+	CpuMask siblingIndices;
+};
+
+class CpuSet {
+public:
+	explicit CpuSet(const Cpu& cpu)
+		: logicalCpus_()
+		, physicalCoreNum_(0)
+		, socketNum_(0)
+		, isHybrid_(cpu.has(cpu.tHYBRID))
+	{
+		impl::initCpuSet(*this, cpu);
+	}
+
+	// Number of logical CPUs
+	size_t getLogicalCpuNum() const { return logicalCpus_.size(); }
+
+	// Number of physical cores
+	size_t getPhysicalCoreNum() const { return physicalCoreNum_; }
+
+	// Number of sockets
+	size_t getSocketNum() const { return socketNum_; }
+
+	// Get logical CPU information
+	const LogicalCpu& getLogicalCpu(size_t cpuIdx) const
+	{
+		return logicalCpus_[cpuIdx];
+	}
+
+	// Get cache information for a specific logical CPU
+	const CpuCache& getCache(size_t cpuIdx, CacheType type) const
+	{
+		return caches_[type][cpuIdx];
+	}
+
+	// Whether this is a hybrid system
+	bool isHybrid() const { return isHybrid_; }
+private:
+	std::vector<LogicalCpu> logicalCpus_;
+	std::vector<CpuCache> caches_[CACHE_TYPE_NUM];
+	size_t physicalCoreNum_;
+	size_t socketNum_;
+	bool isHybrid_;
+};
+
+namespace impl {
+#ifdef _WIN32
+inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
+{
+}
+#else // Linux
+inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
+{
+	
+}
+#endif
+}
+
+#endif // XBYAK_CPU_CACHE
+
+
 class Clock {
 public:
 	static inline uint64_t getRdtsc()
