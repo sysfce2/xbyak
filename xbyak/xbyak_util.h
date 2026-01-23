@@ -98,11 +98,11 @@
 #include <windows.h>
 #endif
 namespace Xbyak { namespace util {
-class CpuSet;
+class CpuTopology;
 class Cpu;
 namespace impl {
 
-void initCpuSet(CpuSet& cpuSet, const Cpu& cpu);
+void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu);
 
 } // Xbyak::util::impl
 } } // Xbyak::util
@@ -893,15 +893,15 @@ struct LogicalCpu {
 	CpuMask siblingIndices;
 };
 
-class CpuSet {
+class CpuTopology {
 public:
-	explicit CpuSet(const Cpu& cpu)
+	explicit CpuTopology(const Cpu& cpu)
 		: logicalCpus_()
 		, physicalCoreNum_(0)
 		, socketNum_(0)
 		, isHybrid_(cpu.has(cpu.tHYBRID))
 	{
-		impl::initCpuSet(*this, cpu);
+		impl::initCpuTopology(*this, cpu);
 	}
 
 	// Number of logical CPUs
@@ -928,7 +928,7 @@ public:
 	// Whether this is a hybrid system
 	bool isHybrid() const { return isHybrid_; }
 private:
-	friend void impl::initCpuSet(CpuSet&, const Cpu&);
+	friend void impl::initCpuTopology(CpuTopology&, const Cpu&);
 	std::vector<LogicalCpu> logicalCpus_;
 	std::vector<CpuCache> caches_[CACHE_TYPE_NUM];
 	size_t physicalCoreNum_;
@@ -938,7 +938,7 @@ private:
 
 namespace impl {
 #ifdef _WIN32
-inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
+inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 {
 	typedef SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX processorInfo;
 
@@ -1026,14 +1026,14 @@ inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
 	uint32_t numLogicalCpus = maxCpuIndex + 1;
 
 	// Initialize logical CPU array
-	cpuSet.logicalCpus_.resize(numLogicalCpus);
+	cpuTopo.logicalCpus_.resize(numLogicalCpus);
 	for (uint32_t i = 0; i < CACHE_TYPE_NUM; i++) {
-		cpuSet.caches_[i].resize(numLogicalCpus);
+		cpuTopo.caches_[i].resize(numLogicalCpus);
 	}
 
 	// Populate logical CPU information
 	for (uint32_t cpuIdx = 0; cpuIdx < numLogicalCpus; cpuIdx++) {
-		LogicalCpu& logCpu = cpuSet.logicalCpus_[cpuIdx];
+		LogicalCpu& logCpu = cpuTopo.logicalCpus_[cpuIdx];
 		logCpu.index = cpuIdx;
 		logCpu.physicalId = coreInfoMap[cpuIdx].physicalId;
 		logCpu.coreId = coreInfoMap[cpuIdx].coreId;
@@ -1054,8 +1054,8 @@ inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
 	std::vector<uint8_t> cacheBuffer(len);
 	if (!GetLogicalProcessorInformationEx(RelationCache,
 		reinterpret_cast<processorInfo*>(cacheBuffer.data()), &len)) {
-		cpuSet.physicalCoreNum_ = uniqueCores.size();
-		cpuSet.socketNum_ = uniqueSockets.size();
+		cpuTopo.physicalCoreNum_ = uniqueCores.size();
+		cpuTopo.socketNum_ = uniqueSockets.size();
 		return;
 	}
 
@@ -1092,7 +1092,7 @@ inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
 				// Apply this cache info to all logical CPUs in the mask
 				for (uint32_t cpuIdx = 0; cpuIdx < numLogicalCpus && cpuIdx < 64; cpuIdx++) {
 					if (mask & (KAFFINITY(1) << cpuIdx)) {
-						CpuCache& cpuCache = cpuSet.caches_[cacheType][cpuIdx];
+						CpuCache& cpuCache = cpuTopo.caches_[cacheType][cpuIdx];
 						cpuCache.size = cache.CacheSize;
 						cpuCache.lineSize = cache.LineSize;
 						cpuCache.associativity = cache.Associativity;
@@ -1111,8 +1111,8 @@ inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
 		entryPtr += entry.Size;
 	}
 
-	cpuSet.physicalCoreNum_ = uniqueCores.size();
-	cpuSet.socketNum_ = uniqueSockets.size();
+	cpuTopo.physicalCoreNum_ = uniqueCores.size();
+	cpuTopo.socketNum_ = uniqueSockets.size();
 }
 #elif __linux__ // Linux
 inline uint32_t readIntFromFile(const char* path) {
@@ -1162,7 +1162,7 @@ inline void parseCpuList(const char* path, CpuMask& mask) {
 	fclose(f);
 }
 
-inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
+inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 {
 	// Count online CPUs
 	char path[256];
@@ -1179,9 +1179,9 @@ inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
 	bool isHybrid = cpu.has(cpu.tHYBRID);
 
 	// Initialize logical CPUs
-	cpuSet.logicalCpus_.resize(maxCpu);
+	cpuTopo.logicalCpus_.resize(maxCpu);
 	for (uint32_t i = 0; i < CACHE_TYPE_NUM; i++) {
-		cpuSet.caches_[i].resize(maxCpu);
+		cpuTopo.caches_[i].resize(maxCpu);
 	}
 
 	std::set<std::pair<uint32_t, uint32_t> > uniqueCores;
@@ -1189,7 +1189,7 @@ inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
 
 	// Read topology for each CPU
 	for (uint32_t cpuIdx = 0; cpuIdx < maxCpu; cpuIdx++) {
-		LogicalCpu& logCpu = cpuSet.logicalCpus_[cpuIdx];
+		LogicalCpu& logCpu = cpuTopo.logicalCpus_[cpuIdx];
 		logCpu.index = cpuIdx;
 
 		// Read physical package ID
@@ -1282,7 +1282,7 @@ inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
 			}
 			fclose(f);
 
-			CpuCache& cache = cpuSet.caches_[cacheType][cpuIdx];
+			CpuCache& cache = cpuTopo.caches_[cacheType][cpuIdx];
 
 			// Read cache size
 			snprintf(path, sizeof(path),
@@ -1319,14 +1319,14 @@ inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
 		}
 	}
 
-	cpuSet.physicalCoreNum_ = uniqueCores.size();
-	cpuSet.socketNum_ = uniqueSockets.size();
+	cpuTopo.physicalCoreNum_ = uniqueCores.size();
+	cpuTopo.socketNum_ = uniqueSockets.size();
 }
 #else // Other OS (e.g., macOS)
-inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
+inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 {
 	// CPU topology detection not yet implemented
-	(void)cpuSet;
+	(void)cpuTopo;
 	(void)cpu;
 }
 #endif // _WIN32 / __linux__ / other OS

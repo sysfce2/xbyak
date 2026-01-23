@@ -1,6 +1,6 @@
 /*
  * Test program for Xbyak CPU Cache Topology API
- * Demonstrates the CpuSet, CpuCache, LogicalCpu, and CpuMask classes
+ * Demonstrates the CpuTopology, CpuCache, LogicalCpu, and CpuMask classes
  */
 
 #include <stdio.h>
@@ -42,17 +42,17 @@ void printCpuMaskTest()
 void printSystemTopology()
 {
 	printSeparator();
-	printf("CpuSet Class - System CPU topology\n");
+	printf("CpuTopology Class - System CPU topology\n");
 	printSeparator();
 	
 	Cpu cpu;
-	CpuSet cpuSet(cpu);
+	CpuTopology cpuTopo(cpu);
 	
 	printf("System Configuration:\n");
-	printf("  Logical CPUs:   %zu\n", cpuSet.getLogicalCpuNum());
-	printf("  Physical Cores: %zu\n", cpuSet.getPhysicalCoreNum());
-	printf("  Sockets:        %zu\n", cpuSet.getSocketNum());
-	printf("  Hybrid System:  %s\n", cpuSet.isHybrid() ? "Yes (P-cores + E-cores)" : "No");
+	printf("  Logical CPUs:   %zu\n", cpuTopo.getLogicalCpuNum());
+	printf("  Physical Cores: %zu\n", cpuTopo.getPhysicalCoreNum());
+	printf("  Sockets:        %zu\n", cpuTopo.getSocketNum());
+	printf("  Hybrid System:  %s\n", cpuTopo.isHybrid() ? "Yes (P-cores + E-cores)" : "No");
 	printf("\n");
 }
 
@@ -63,14 +63,14 @@ void printLogicalCpuDetails()
 	printSeparator();
 	
 	Cpu cpu;
-	CpuSet cpuSet(cpu);
+	CpuTopology cpuTopo(cpu);
 	
 	printf("Detailed CPU Topology (showing upto 32 Logical CPUs):\n");
 	size_t maxCpusToPrint = 32;
-	size_t numCpus = cpuSet.getLogicalCpuNum();
+	size_t numCpus = cpuTopo.getLogicalCpuNum();
 	
 	for (size_t i = 0; i < numCpus && i < maxCpusToPrint; i++) {
-		const LogicalCpu& logCpu = cpuSet.getLogicalCpu(i);
+		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(i);
 		
 		// Determine core type string
 		const char* coreTypeStr;
@@ -110,9 +110,9 @@ void printCacheHierarchy()
 	printSeparator();
 	
 	Cpu cpu;
-	CpuSet cpuSet(cpu);
+	CpuTopology cpuTopo(cpu);
 	
-	if (cpuSet.getLogicalCpuNum() == 0) {
+	if (cpuTopo.getLogicalCpuNum() == 0) {
 		printf("No CPU information available\n\n");
 		return;
 	}
@@ -124,8 +124,8 @@ void printCacheHierarchy()
 	std::map<std::string, std::vector<size_t> > topologyGroups;
 	
 	// Build cache topology signatures for each CPU
-	for (size_t cpuIdx = 0; cpuIdx < cpuSet.getLogicalCpuNum(); cpuIdx++) {
-		const LogicalCpu& logCpu = cpuSet.getLogicalCpu(cpuIdx);
+	for (size_t cpuIdx = 0; cpuIdx < cpuTopo.getLogicalCpuNum(); cpuIdx++) {
+		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(cpuIdx);
 		
 		// Create a signature string that uniquely identifies the cache topology
 		char signature[512];
@@ -143,7 +143,7 @@ void printCacheHierarchy()
 		
 		// Add cache properties to signature
 		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
-			const CpuCache& cache = cpuSet.getCache(cpuIdx, (CacheType)cType);
+			const CpuCache& cache = cpuTopo.getCache(cpuIdx, (CacheType)cType);
 			offset += snprintf(signature + offset, sizeof(signature) - offset, 
 				"%d-%u-%u-%u-%zu;", 
 				cType, cache.size, cache.associativity, cache.lineSize, 
@@ -163,7 +163,7 @@ void printCacheHierarchy()
 		if (cpuList.empty()) continue;
 		
 		size_t firstCpu = cpuList[0];
-		const LogicalCpu& logCpu = cpuSet.getLogicalCpu(firstCpu);
+		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(firstCpu);
 		
 		// Print core type and CPU list
 		const char* coreTypeStr = "";
@@ -188,7 +188,7 @@ void printCacheHierarchy()
 		
 		// Print cache details for this topology
 		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
-			const CpuCache& cache = cpuSet.getCache(firstCpu, (CacheType)cType);
+			const CpuCache& cache = cpuTopo.getCache(firstCpu, (CacheType)cType);
 			if (cache.size > 0) {
 				printf("  %s: ", cacheNames[cType]);
 				if (cache.size >= 1024 * 1024) {
@@ -217,9 +217,9 @@ void printCacheSharingDetails()
 	printSeparator();
 	
 	Cpu cpu;
-	CpuSet cpuSet(cpu);
+	CpuTopology cpuTopo(cpu);
 	
-	if (cpuSet.getLogicalCpuNum() == 0) {
+	if (cpuTopo.getLogicalCpuNum() == 0) {
 		printf("No CPU information available\n\n");
 		return;
 	}
@@ -230,8 +230,8 @@ void printCacheSharingDetails()
 	std::map<std::string, std::vector<size_t> > topologyGroups;
 	
 	// Build cache topology signatures for each CPU
-	for (size_t cpuIdx = 0; cpuIdx < cpuSet.getLogicalCpuNum(); cpuIdx++) {
-		const LogicalCpu& logCpu = cpuSet.getLogicalCpu(cpuIdx);
+	for (size_t cpuIdx = 0; cpuIdx < cpuTopo.getLogicalCpuNum(); cpuIdx++) {
+		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(cpuIdx);
 		
 		// Create a signature string that uniquely identifies the cache topology
 		char signature[512];
@@ -249,7 +249,7 @@ void printCacheSharingDetails()
 		
 		// Add cache properties to signature
 		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
-			const CpuCache& cache = cpuSet.getCache(cpuIdx, (CacheType)cType);
+			const CpuCache& cache = cpuTopo.getCache(cpuIdx, (CacheType)cType);
 			offset += snprintf(signature + offset, sizeof(signature) - offset, 
 				"%d-%u-%u-%u-%zu;", 
 				cType, cache.size, cache.associativity, cache.lineSize, 
@@ -267,7 +267,7 @@ void printCacheSharingDetails()
 		if (cpuList.empty()) continue;
 		
 		size_t firstCpu = cpuList[0];
-		const LogicalCpu& logCpu = cpuSet.getLogicalCpu(firstCpu);
+		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(firstCpu);
 		
 		// Print core type
 		const char* coreTypeStr = "";
@@ -282,7 +282,7 @@ void printCacheSharingDetails()
 		
 		// Analyze each cache level
 		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
-			const CpuCache& cache = cpuSet.getCache(firstCpu, (CacheType)cType);
+			const CpuCache& cache = cpuTopo.getCache(firstCpu, (CacheType)cType);
 			if (cache.size > 0) {
 				printf("  %s Cache:\n", cacheNames[cType]);
 				printf("    Size: ");

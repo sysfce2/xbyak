@@ -9,7 +9,7 @@ This directory contains sample programs demonstrating various features of the Xb
 - **calc.cpp** (calc/calc64) - Calculator using Boost.Spirit parser (requires Boost)
 - **memfunc.cpp** (memfunc/memfunc64) - Member function JIT compilation example
 - **test_util.cpp** (test_util/test_util64) - CPU feature detection and cache topology
-- **test_util_cache.cpp** (test_util_cache64) - CPU cache topology API demonstration (CpuSet, CpuCache, LogicalCpu, CpuMask)
+- **test_util_cache.cpp** (test_util_cache64) - CPU cache topology API demonstration (CpuTopology, CpuCache, LogicalCpu, CpuMask)
 - **jmp_table.cpp** (jmp_table/jmp_table64) - Jump table demonstration
 - **zero_upper.cpp** (zero_upper) - AVX zero upper demonstration
 - **ccmp.cpp** (ccmp) - Conditional compare instructions
