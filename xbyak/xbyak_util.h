@@ -1041,7 +1041,7 @@ inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
 
 		// Set sibling indices
 		KAFFINITY siblingMask = coreInfoMap[cpuIdx].siblingMask;
-		for (int bit = 0; bit < numLogicalCpus && bit < 64; bit++) {
+		for (uint32_t bit = 0; bit < numLogicalCpus && bit < 64; bit++) {
 			if (siblingMask & (KAFFINITY(1) << bit)) {
 				logCpu.siblingIndices.set(bit);
 			}
@@ -1099,7 +1099,7 @@ inline void initCpuSet(CpuSet& cpuSet, const Cpu& cpu)
 						cpuCache.isShared = (countBits(mask) > 1);
 
 						// Set shared CPU indices
-						for (int bit = 0; bit < numLogicalCpus && bit < 64; bit++) {
+						for (uint32_t bit = 0; bit < numLogicalCpus && bit < 64; bit++) {
 							if (mask & (KAFFINITY(1) << bit)) {
 								cpuCache.sharedCpuIndices.set(bit);
 							}

@@ -10,7 +10,8 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 # Read warning flags if available (only for GCC/Clang)
 if(NOT MSVC AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../test/CFLAGS_WARN.cfg")
-    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../test/CFLAGS_WARN.cfg" CFLAGS_WARN)
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../test/CFLAGS_WARN.cfg" CFLAGS_WARN_STR)
+    separate_arguments(CFLAGS_WARN UNIX_COMMAND "${CFLAGS_WARN_STR}")
 endif()
 
 # Platform-specific compiler flags
@@ -52,6 +53,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     add_sample_target(bf64 bf.cpp)
     add_sample_target(memfunc64 memfunc.cpp)
     add_sample_target(test_util64 test_util.cpp)
+    add_sample_target(test_util_cache64 test_util_cache.cpp)
     add_sample_target(jmp_table64 jmp_table.cpp)
     add_sample_target(zero_upper zero_upper.cpp)
     add_sample_target(ccmp ccmp.cpp)
