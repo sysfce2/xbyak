@@ -95,6 +95,8 @@ static_buf:
 	$(CXX_32) $(CFLAGS) static_buf.cpp -o $@
 static_buf64:
 	$(CXX_64) $(CFLAGS) static_buf.cpp -o $@
+cputopology:
+	$(CXX_64) $(CFLAGS) cputopology.cpp -o $@
 jmp_table:
 	$(CXX_32) $(CFLAGS) jmp_table.cpp -o $@
 jmp_table64:
