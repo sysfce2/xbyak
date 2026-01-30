@@ -879,6 +879,7 @@ struct LogicalCpu {
 		, coreId(0)
 		, coreType(Unknown)
 		, siblingIndices()
+		, cache_()
 	{
 	}
 	// Logical CPU index in the system (0 to N-1)
@@ -891,6 +892,8 @@ struct LogicalCpu {
 	CoreType coreType;
 	// Sibling thread indices sharing the same physical core
 	CpuMask siblingIndices;
+	// Cache information for each cache type
+	CpuCache cache_[CACHE_TYPE_NUM];
 };
 
 class CpuTopology {
@@ -922,7 +925,7 @@ public:
 	// Get cache information for a specific logical CPU
 	const CpuCache& getCache(size_t cpuIdx, CacheType type) const
 	{
-		return caches_[type][cpuIdx];
+		return logicalCpus_[cpuIdx].cache_[type];
 	}
 
 	// Whether this is a hybrid system
@@ -930,7 +933,6 @@ public:
 private:
 	friend void impl::initCpuTopology(CpuTopology&, const Cpu&);
 	std::vector<LogicalCpu> logicalCpus_;
-	std::vector<CpuCache> caches_[CACHE_TYPE_NUM];
 	size_t physicalCoreNum_;
 	size_t socketNum_;
 	bool isHybrid_;
@@ -1027,9 +1029,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 
 	// Initialize logical CPU array
 	cpuTopo.logicalCpus_.resize(numLogicalCpus);
-	for (uint32_t i = 0; i < CACHE_TYPE_NUM; i++) {
-		cpuTopo.caches_[i].resize(numLogicalCpus);
-	}
 
 	// Populate logical CPU information
 	for (uint32_t cpuIdx = 0; cpuIdx < numLogicalCpus; cpuIdx++) {
@@ -1092,7 +1091,7 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 				// Apply this cache info to all logical CPUs in the mask
 				for (uint32_t cpuIdx = 0; cpuIdx < numLogicalCpus && cpuIdx < 64; cpuIdx++) {
 					if (mask & (KAFFINITY(1) << cpuIdx)) {
-						CpuCache& cpuCache = cpuTopo.caches_[cacheType][cpuIdx];
+						CpuCache& cpuCache = cpuTopo.logicalCpus_[cpuIdx].cache_[cacheType];
 						cpuCache.size = cache.CacheSize;
 						cpuCache.lineSize = cache.LineSize;
 						cpuCache.associativity = cache.Associativity;
@@ -1180,9 +1179,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 
 	// Initialize logical CPUs
 	cpuTopo.logicalCpus_.resize(maxCpu);
-	for (uint32_t i = 0; i < CACHE_TYPE_NUM; i++) {
-		cpuTopo.caches_[i].resize(maxCpu);
-	}
 
 	std::set<std::pair<uint32_t, uint32_t> > uniqueCores;
 	std::set<uint32_t> uniqueSockets;
@@ -1282,7 +1278,7 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 			}
 			fclose(f);
 
-			CpuCache& cache = cpuTopo.caches_[cacheType][cpuIdx];
+			CpuCache& cache = cpuTopo.logicalCpus_[cpuIdx].cache_[cacheType];
 
 			// Read cache size
 			snprintf(path, sizeof(path),
