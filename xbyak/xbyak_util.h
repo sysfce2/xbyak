@@ -87,8 +87,14 @@
 	#include <sched.h>
 #endif
 
-#define XBYAK_CPU_CACHE
-#ifdef XBYAK_CPU_CACHE
+#ifndef XBYAK_CPU_CACHE
+	#if ((__cplusplus >= 201103L) || (defined(_MSC_VER) && _MSC_VER >= 1700))
+		#define XBYAK_CPU_CACHE 1
+	#else
+		#define XBYAK_CPU_CACHE 0
+	#endif
+#endif
+#if XBYAK_CPU_CACHE == 1
 #include <vector>
 #include <set>
 #ifndef XBYAK_MAX_CPU_NUM
@@ -444,8 +450,8 @@ public:
 	static inline void getCpuidEx(uint32_t eaxIn, uint32_t ecxIn, uint32_t data[4])
 	{
 #ifdef XBYAK_INTEL_CPU_SPECIFIC
-	#ifdef _WIN32
-		__cpuidex(reinterpret_cast<int*>(data), eaxIn, ecxIn);
+	#ifdef _MSC_VER
+		return __cpuidex(reinterpret_cast<int*>(data), eaxIn, ecxIn);
 	#else
 		__cpuid_count(eaxIn, ecxIn, data[0], data[1], data[2], data[3]);
 	#endif
@@ -786,7 +792,7 @@ public:
 #endif
 
 #ifndef XBYAK_ONLY_CLASS_CPU
-#ifdef XBYAK_CPU_CACHE
+#if XBYAK_CPU_CACHE == 1
 
 enum CoreType {
 	Unknown,
