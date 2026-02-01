@@ -918,7 +918,7 @@ struct LogicalCpu {
 		, coreId(0)
 		, coreType(Unknown)
 		, siblingIndices()
-		, cache_()
+		, cache()
 	{
 	}
 	// Logical CPU index in the system (0 to N-1)
@@ -932,7 +932,7 @@ struct LogicalCpu {
 	// Sibling thread indices sharing the same physical core
 	CpuMask siblingIndices;
 	// Cache information for each cache type
-	CpuCache cache_[CACHE_TYPE_NUM];
+	CpuCache cache[CACHE_TYPE_NUM];
 };
 
 class CpuTopology {
@@ -968,7 +968,7 @@ public:
 	// Get cache information for a specific logical CPU
 	const CpuCache& getCache(size_t cpuIdx, CacheType type) const
 	{
-		return logicalCpus_[cpuIdx].cache_[type];
+		return logicalCpus_[cpuIdx].cache[type];
 	}
 
 	// Whether this is a hybrid system
@@ -1136,7 +1136,7 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 				// Apply this cache info to all logical CPUs in the mask
 				for (uint32_t cpuIdx = 0; cpuIdx < numLogicalCpus && cpuIdx < 64; cpuIdx++) {
 					if (mask & (KAFFINITY(1) << cpuIdx)) {
-						CpuCache& cpuCache = cpuTopo.logicalCpus_[cpuIdx].cache_[cacheType];
+						CpuCache& cpuCache = cpuTopo.logicalCpus_[cpuIdx].cache[cacheType];
 						cpuCache.size = cache.CacheSize;
 						if (lineSize == 0) lineSize = cache.LineSize;
 						cpuCache.associativity = cache.Associativity;
@@ -1323,7 +1323,7 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 			}
 			fclose(f);
 
-			CpuCache& cache = cpuTopo.logicalCpus_[cpuIdx].cache_[cacheType];
+			CpuCache& cache = cpuTopo.logicalCpus_[cpuIdx].cache[cacheType];
 
 			// Read cache size
 			snprintf(path, sizeof(path),
