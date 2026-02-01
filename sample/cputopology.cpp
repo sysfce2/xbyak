@@ -195,7 +195,7 @@ void printCacheHierarchy()
 				}
 				printf(" | %2u-way | Line: %2u bytes",
 					cache.associativity, cache.lineSize);
-				if (cache.isShared) {
+				if (cache.isShared()) {
 					printf(" | Shared by %zu CPUs", cache.getSharedCpuNum());
 				}
 				printf("\n");
@@ -289,7 +289,7 @@ void printCacheSharingDetails()
 					printf("%u B\n", cache.size);
 				}
 
-				if (cache.isShared) {
+				if (cache.isShared()) {
 					printf("    Shared by %zu CPUs: ", cache.getSharedCpuNum());
 					int count = 0;
 					for (const auto& idx : cache.sharedCpuIndices) {

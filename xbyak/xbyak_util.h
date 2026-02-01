@@ -893,7 +893,7 @@ public:
 
 class CpuCache {
 public:
-	CpuCache() : size(0), lineSize(0), associativity(0), isShared(false) {}
+	CpuCache() : size(0), lineSize(0), associativity(0) {}
 
 	// Cache size in bytes
 	uint32_t size;
@@ -905,7 +905,7 @@ public:
 	uint32_t associativity;
 
 	// Whether this is a shared cache
-	bool isShared;
+	bool isShared() const { return sharedCpuIndices.size() > 1; }
 
 	// Set of logical CPU indices sharing this cache
 	CpuMask sharedCpuIndices;
@@ -1137,7 +1137,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 						cpuCache.size = cache.CacheSize;
 						cpuCache.lineSize = cache.LineSize;
 						cpuCache.associativity = cache.Associativity;
-						cpuCache.isShared = (countBits(mask) > 1);
 
 						// Set shared CPU indices
 						for (uint32_t bit = 0; bit < numLogicalCpus && bit < 64; bit++) {
@@ -1353,7 +1352,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 			snprintf(path, sizeof(path),
 				"/sys/devices/system/cpu/cpu%u/cache/index%u/shared_cpu_list", cpuIdx, cacheIdx);
 			parseCpuList(path, cache.sharedCpuIndices);
-			cache.isShared = cache.sharedCpuIndices.size() > 1;
 		}
 	}
 
