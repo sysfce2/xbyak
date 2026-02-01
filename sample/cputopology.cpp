@@ -31,11 +31,9 @@ void printCpuMaskTest()
 	printf("Created CpuMask with CPUs: 0, 2, 5, 7\n");
 	printf("Iterating through set CPUs:\n");
 	for (CpuMask::iterator it = mask.begin(); it != mask.end(); ++it) {
-		if (mask.get(*it)) {
-			printf("  CPU %u is set\n", *it);
-		}
+		printf("  CPU %u is set\n", *it);
 	}
-	printf("Total CPUs in mask: %u\n", mask.size());
+	printf("Total CPUs in mask: %zu\n", mask.size());
 	printf("\n");
 }
 
@@ -86,13 +84,10 @@ void printLogicalCpuDetails()
 			logCpu.index, logCpu.physicalId, logCpu.coreId, coreTypeStr);
 
 		bool first = true;
-		for (CpuMask::iterator it = logCpu.siblingIndices.begin();
-		     it != logCpu.siblingIndices.end(); ++it) {
-			if (logCpu.siblingIndices.get(*it)) {
-				if (!first) printf(",");
-				printf("%u", *it);
-				first = false;
-			}
+		for (const auto& idx : logCpu.siblingIndices) {
+			if (!first) printf(",");
+			printf("%u", idx);
+			first = false;
 		}
 		printf("]\n");
 	}
@@ -296,19 +291,14 @@ void printCacheSharingDetails()
 
 				if (cache.isShared) {
 					printf("    Shared by %zu CPUs: ", cache.getSharedCpuNum());
-					bool first = true;
 					int count = 0;
-					for (CpuMask::iterator it = cache.sharedCpuIndices.begin();
-					     it != cache.sharedCpuIndices.end(); ++it) {
-						if (cache.sharedCpuIndices.get(*it)) {
-							if (!first) printf(",");
-							printf("%u", *it);
-							first = false;
-							count++;
-							if (count > 20) {
-								printf("...");
-								break;
-							}
+					for (const auto& idx : cache.sharedCpuIndices) {
+						if (count > 0) printf(",");
+						printf("%u", idx);
+						count++;
+						if (count > 20) {
+							printf("...");
+							break;
 						}
 					}
 					printf("\n");

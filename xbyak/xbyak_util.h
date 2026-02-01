@@ -809,6 +809,41 @@ enum CacheType {
 	CACHE_TYPE_NUM
 };
 
+#if 1
+class CpuMask {
+	typedef std::set<uint32_t> IntSet;
+	IntSet indices_;
+public:
+	typedef IntSet::const_iterator const_iterator;
+	typedef const_iterator iterator;
+	CpuMask() : indices_() {}
+	size_t size() const { return indices_.size(); }
+	void set(uint32_t idx)
+	{
+		indices_.insert(idx);
+	}
+	iterator begin() { return indices_.begin(); }
+	iterator end() { return indices_.end(); }
+	const_iterator begin() const { return indices_.begin(); }
+	const_iterator end() const { return indices_.end(); }
+	void put(const char *label = nullptr) const
+	{
+		if (label) printf("%s: ", label);
+		std::string s;
+		s.reserve(size() * 3);
+		for (const auto& i : *this) {
+			char buf[16];
+			snprintf(buf, sizeof(buf), "%d ", i);
+			s += buf;
+		}
+		if (size() > 2 && *indices_.rbegin() - *begin() + 1 == size()) {
+			printf("[%u %u]\n", *begin(), *indices_.rbegin());
+		} else {
+			printf("%s\n", s.c_str());
+		}
+	}
+};
+#else
 class CpuMask {
 	static const uint32_t N = XBYAK_MAX_CPU_NUM / 8;
 	uint8_t v_[N];
@@ -854,6 +889,7 @@ public:
 		return n;
 	}
 };
+#endif
 
 class CpuCache {
 public:
