@@ -901,11 +901,11 @@ public:
 	// number of ways of associativity
 	uint32_t associativity;
 
-	// Whether this is a shared cache
-	bool isShared() const { return sharedCpuIndices.size() > 1; }
-
 	// Set of logical CPU indices sharing this cache
 	CpuMask sharedCpuIndices;
+
+	// Whether this is a shared cache
+	bool isShared() const { return sharedCpuIndices.size() > 1; }
 
 	// Number of logical CPUs sharing this cache
 	size_t getSharedCpuNum() const { return sharedCpuIndices.size(); }
