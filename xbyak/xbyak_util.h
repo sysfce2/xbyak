@@ -893,13 +893,10 @@ public:
 
 class CpuCache {
 public:
-	CpuCache() : size(0), lineSize(0), associativity(0) {}
+	CpuCache() : size(0), associativity(0) {}
 
 	// Cache size in bytes
 	uint32_t size;
-
-	// Cache line size in bytes
-	uint32_t lineSize;
 
 	// number of ways of associativity
 	uint32_t associativity;
@@ -944,6 +941,7 @@ public:
 		: logicalCpus_()
 		, physicalCoreNum_(0)
 		, socketNum_(0)
+		, lineSize_(0)
 		, isHybrid_(cpu.has(cpu.tHYBRID))
 	{
 		impl::initCpuTopology(*this, cpu);
@@ -957,6 +955,9 @@ public:
 
 	// Number of sockets
 	size_t getSocketNum() const { return socketNum_; }
+
+	// Cache line size in bytes
+	uint32_t getLineSize() const { return lineSize_; }
 
 	// Get logical CPU information
 	const LogicalCpu& getLogicalCpu(size_t cpuIdx) const
@@ -977,6 +978,7 @@ private:
 	std::vector<LogicalCpu> logicalCpus_;
 	size_t physicalCoreNum_;
 	size_t socketNum_;
+	uint32_t lineSize_;
 	bool isHybrid_;
 };
 
@@ -1103,6 +1105,7 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 	entryPtr = reinterpret_cast<char*>(cacheBuffer.data());
 	end = entryPtr + len;
 
+	uint32_t lineSize = 0;
 	while (entryPtr < end) {
 		const processorInfo& entry = *reinterpret_cast<processorInfo*>(entryPtr);
 		if (entry.Relationship == RelationCache) {
@@ -1135,7 +1138,7 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 					if (mask & (KAFFINITY(1) << cpuIdx)) {
 						CpuCache& cpuCache = cpuTopo.logicalCpus_[cpuIdx].cache_[cacheType];
 						cpuCache.size = cache.CacheSize;
-						cpuCache.lineSize = cache.LineSize;
+						if (lineSize == 0) lineSize = cache.LineSize;
 						cpuCache.associativity = cache.Associativity;
 
 						// Set shared CPU indices
@@ -1153,6 +1156,7 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 
 	cpuTopo.physicalCoreNum_ = uniqueCores.size();
 	cpuTopo.socketNum_ = uniqueSockets.size();
+	cpuTopo.lineSize_ = lineSize;
 }
 #elif __linux__ // Linux
 inline uint32_t readIntFromFile(const char* path) {
@@ -1338,10 +1342,12 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 				fclose(f);
 			}
 
-			// Read coherency line size
-			snprintf(path, sizeof(path),
-				"/sys/devices/system/cpu/cpu%u/cache/index%u/coherency_line_size", cpuIdx, cacheIdx);
-			cache.lineSize = readIntFromFile(path);
+			if (cpuIdx == 0 && cacheIdx == 0) {
+				// Read coherency line size
+				snprintf(path, sizeof(path),
+					"/sys/devices/system/cpu/cpu%u/cache/index%u/coherency_line_size", cpuIdx, cacheIdx);
+				cpuTopo.lineSize_ = readIntFromFile(path);
+			}
 
 			// Read ways of associativity
 			snprintf(path, sizeof(path),

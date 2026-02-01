@@ -50,6 +50,7 @@ void printSystemTopology()
 	printf("  Logical CPUs:   %zu\n", cpuTopo.getLogicalCpuNum());
 	printf("  Physical Cores: %zu\n", cpuTopo.getPhysicalCoreNum());
 	printf("  Sockets:        %zu\n", cpuTopo.getSocketNum());
+	printf("  Cache Line Size:%u bytes\n", cpuTopo.getLineSize());
 	printf("  Hybrid System:  %s\n", cpuTopo.isHybrid() ? "Yes (P-cores + E-cores)" : "No");
 	printf("\n");
 }
@@ -140,8 +141,8 @@ void printCacheHierarchy()
 		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
 			const CpuCache& cache = cpuTopo.getCache(cpuIdx, (CacheType)cType);
 			offset += snprintf(signature + offset, sizeof(signature) - offset,
-				"%d-%u-%u-%u-%zu;",
-				cType, cache.size, cache.associativity, cache.lineSize,
+				"%d-%u-%u-%zu;",
+				cType, cache.size, cache.associativity,
 				cache.getSharedCpuNum());
 		}
 
@@ -193,8 +194,7 @@ void printCacheHierarchy()
 				} else {
 					printf("%6u B ", cache.size);
 				}
-				printf(" | %2u-way | Line: %2u bytes",
-					cache.associativity, cache.lineSize);
+				printf(" | %2u-way", cache.associativity);
 				if (cache.isShared()) {
 					printf(" | Shared by %zu CPUs", cache.getSharedCpuNum());
 				}
@@ -246,9 +246,8 @@ void printCacheSharingDetails()
 		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
 			const CpuCache& cache = cpuTopo.getCache(cpuIdx, (CacheType)cType);
 			offset += snprintf(signature + offset, sizeof(signature) - offset,
-				"%d-%u-%u-%u-%zu;",
-				cType, cache.size, cache.associativity, cache.lineSize,
-				cache.getSharedCpuNum());
+				"%d-%u-%u-%zu;",
+				cType, cache.size, cache.associativity, cache.getSharedCpuNum());
 		}
 
 		topologyGroups[signature].push_back(cpuIdx);
