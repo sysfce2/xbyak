@@ -1061,14 +1061,11 @@ public:
 
 struct LogicalCpu {
 	LogicalCpu()
-		: index(0)
-		, coreId(0)
+		: coreId(0)
 		, coreType(Unknown)
 		, cache()
 	{
 	}
-	// Logical CPU index in the system (0 to N-1)
-	uint32_t index;
 	// Physical core index within the socket
 	uint32_t coreId;
 	// Core type (for hybrid systems)
@@ -1218,7 +1215,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
 	// Populate logical CPU information
 	for (uint32_t cpuIdx = 0; cpuIdx < numLogicalCpus; cpuIdx++) {
 		LogicalCpu& logCpu = cpuTopo.logicalCpus_[cpuIdx];
-		logCpu.index = cpuIdx;
 		logCpu.coreId = coreInfoMap[cpuIdx].coreId;
 		logCpu.coreType = coreInfoMap[cpuIdx].coreType;
 	}
@@ -1357,7 +1353,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 	// Read topology for each CPU
 	for (uint32_t cpuIdx = 0; cpuIdx < maxCpu; cpuIdx++) {
 		LogicalCpu& logCpu = cpuTopo.logicalCpus_[cpuIdx];
-		logCpu.index = cpuIdx;
 
 		// Read core ID
 		snprintf(path, sizeof(path),

@@ -73,15 +73,13 @@ void printLogicalCpuDetails()
 		// Determine core type string
 		const char* coreTypeStr;
 		switch (logCpu.coreType) {
-			case Unknown:     coreTypeStr = "Unknown"; break;
 			case Performance: coreTypeStr = "P-core"; break;
 			case Efficient:   coreTypeStr = "E-core"; break;
 			case Standard:    coreTypeStr = "Standard"; break;
 			default:          coreTypeStr = "Unknown"; break;
 		}
 
-		printf("  CPU %-2u: Core=%u Type=%-11s Siblings=",
-			logCpu.index, logCpu.coreId, coreTypeStr);
+		printf("  CPU %-2zu: Core=%u Type=%-8s Siblings=", i, logCpu.coreId, coreTypeStr);
 		logCpu.cache[L1i].sharedCpuIndices.put();
 	}
 
