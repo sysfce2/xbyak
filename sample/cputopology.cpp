@@ -80,7 +80,7 @@ void printLogicalCpuDetails()
 		}
 
 		printf("  CPU %-2zu: Core=%u Type=%-8s Siblings=", i, logCpu.coreId, coreTypeStr);
-		logCpu.cache[L1i].sharedCpuIndices.put();
+		logCpu.getSiblings().put();
 	}
 
 	if (numCpus > maxCpusToPrint) {
