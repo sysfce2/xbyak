@@ -5,16 +5,6 @@
 
 using namespace Xbyak::util;
 
-uint32_t popcnt(uint32_t v)
-{
-	uint32_t n = 0;
-	while (v) {
-		if (v & 1) n++;
-		v >>= 1;
-	}
-	return n;
-}
-
 CYBOZU_TEST_AUTO(pattern)
 {
 	const uint32_t bitN = XBYAK_CPUMASK_BITN;

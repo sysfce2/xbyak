@@ -1124,30 +1124,32 @@ private:
 	friend void impl::initCpuTopology(CpuTopology&, const Cpu&);
 	std::vector<LogicalCpu> logicalCpus_;
 	size_t physicalCoreNum_;
-	size_t socketNum_;
 	uint32_t lineSize_;
 	bool isHybrid_;
 };
 
 namespace impl {
+
+inline uint32_t popcnt(uint64_t mask)
+{
+#if defined(_M_X64) || defined(_M_AMD64)
+	return (int)__popcnt64(mask);
+#elif defined(__GNUC__) || defined(__clang__)
+	return __builtin_popcountll(mask);
+#else
+	uint32_t count = 0;
+	while (mask) {
+		count += (mask & 1);
+		mask >>= 1;
+	}
+	return count;
+#endif
+}
+
 #ifdef _WIN32
 inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 {
 	typedef SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX processorInfo;
-
-	// Helper lambda to count set bits in a mask
-	auto countBits = [](KAFFINITY mask) -> int {
-#if defined(_M_X64) || defined(_M_AMD64)
-		return (int)__popcnt64(mask);
-#else
-		int count = 0;
-		while (mask) {
-			count += (mask & 1);
-			mask >>= 1;
-		}
-		return count;
-#endif
-	};
 
 	// First pass: Get processor core information
 	DWORD len = 0;
