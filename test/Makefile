@@ -25,8 +25,8 @@ ifeq ($(ONLY_64BIT),0)
 endif
 
 ifeq ($(BIT),64)
-	TARGET += jmp64 address64 apx cpumask
-	TARGET += sf_test
+	TARGET += jmp64 address64 apx
+	TARGET += sf_test cpumask_test
 endif
 
 all: $(TARGET)
