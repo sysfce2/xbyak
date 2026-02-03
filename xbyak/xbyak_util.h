@@ -1061,7 +1061,6 @@ public:
 struct LogicalCpu {
 	LogicalCpu()
 		: index(0)
-		, physicalId(0)
 		, coreId(0)
 		, coreType(Unknown)
 		, siblingIndices()
@@ -1070,8 +1069,6 @@ struct LogicalCpu {
 	}
 	// Logical CPU index in the system (0 to N-1)
 	uint32_t index;
-	// Physical package (socket) index
-	uint32_t physicalId;
 	// Physical core index within the socket
 	uint32_t coreId;
 	// Core type (for hybrid systems)
@@ -1087,7 +1084,6 @@ public:
 	explicit CpuTopology(const Cpu& cpu)
 		: logicalCpus_()
 		, physicalCoreNum_(0)
-		, socketNum_(0)
 		, lineSize_(0)
 		, isHybrid_(cpu.has(cpu.tHYBRID))
 	{
@@ -1099,9 +1095,6 @@ public:
 
 	// Number of physical cores
 	size_t getPhysicalCoreNum() const { return physicalCoreNum_; }
-
-	// Number of sockets
-	size_t getSocketNum() const { return socketNum_; }
 
 	// Cache line size in bytes
 	uint32_t getLineSize() const { return lineSize_; }
@@ -1162,13 +1155,12 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 
 	// Count logical CPUs and identify core types
 	uint32_t maxCpuIndex = 0;
-	bool isHybrid = cpu.has(cpu.tHYBRID);
+	bool isHybrid = cpuTopo.isHybrid();
 	std::set<std::pair<uint32_t, uint32_t> > uniqueCores;
 	std::set<uint32_t> uniqueSockets;
 
 	// Map from logical CPU index to core info
 	struct CoreInfo {
-		uint32_t physicalId;
 		uint32_t coreId;
 		CoreType coreType;
 		KAFFINITY siblingMask;
@@ -1205,7 +1197,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 
 					maxCpuIndex = (cpuIdx > maxCpuIndex) ? cpuIdx : maxCpuIndex;
 
-					coreInfoMap[cpuIdx].physicalId = 0; // Windows doesn't easily expose socket ID
 					coreInfoMap[cpuIdx].coreId = coreCounter;
 					coreInfoMap[cpuIdx].coreType = coreType;
 					coreInfoMap[cpuIdx].siblingMask = mask;
@@ -1227,7 +1218,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 	for (uint32_t cpuIdx = 0; cpuIdx < numLogicalCpus; cpuIdx++) {
 		LogicalCpu& logCpu = cpuTopo.logicalCpus_[cpuIdx];
 		logCpu.index = cpuIdx;
-		logCpu.physicalId = coreInfoMap[cpuIdx].physicalId;
 		logCpu.coreId = coreInfoMap[cpuIdx].coreId;
 		logCpu.coreType = coreInfoMap[cpuIdx].coreType;
 
@@ -1247,7 +1237,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 	if (!GetLogicalProcessorInformationEx(RelationCache,
 		reinterpret_cast<processorInfo*>(cacheBuffer.data()), &len)) {
 		cpuTopo.physicalCoreNum_ = uniqueCores.size();
-		cpuTopo.socketNum_ = uniqueSockets.size();
 		return;
 	}
 
@@ -1299,7 +1288,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 	}
 
 	cpuTopo.physicalCoreNum_ = uniqueCores.size();
-	cpuTopo.socketNum_ = uniqueSockets.size();
 	cpuTopo.lineSize_ = lineSize;
 }
 #elif __linux__ // Linux
@@ -1371,25 +1359,18 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 	// Initialize logical CPUs
 	cpuTopo.logicalCpus_.resize(maxCpu);
 
-	std::set<std::pair<uint32_t, uint32_t> > uniqueCores;
-	std::set<uint32_t> uniqueSockets;
+	std::set<uint32_t> uniqueCores;
 
 	// Read topology for each CPU
 	for (uint32_t cpuIdx = 0; cpuIdx < maxCpu; cpuIdx++) {
 		LogicalCpu& logCpu = cpuTopo.logicalCpus_[cpuIdx];
 		logCpu.index = cpuIdx;
 
-		// Read physical package ID
-		snprintf(path, sizeof(path),
-			"/sys/devices/system/cpu/cpu%u/topology/physical_package_id", cpuIdx);
-		logCpu.physicalId = readIntFromFile(path);
-		uniqueSockets.insert(logCpu.physicalId);
-
 		// Read core ID
 		snprintf(path, sizeof(path),
 			"/sys/devices/system/cpu/cpu%u/topology/core_id", cpuIdx);
 		logCpu.coreId = readIntFromFile(path);
-		uniqueCores.insert(std::make_pair(logCpu.physicalId, logCpu.coreId));
+		uniqueCores.insert(logCpu.coreId);
 
 		// Read thread siblings (SMT)
 		snprintf(path, sizeof(path),
@@ -1508,7 +1489,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 	}
 
 	cpuTopo.physicalCoreNum_ = uniqueCores.size();
-	cpuTopo.socketNum_ = uniqueSockets.size();
 }
 #else // Other OS (e.g., macOS)
 inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)

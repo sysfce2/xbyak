@@ -49,7 +49,6 @@ void printSystemTopology()
 	printf("System Configuration:\n");
 	printf("  Logical CPUs:   %zu\n", cpuTopo.getLogicalCpuNum());
 	printf("  Physical Cores: %zu\n", cpuTopo.getPhysicalCoreNum());
-	printf("  Sockets:        %zu\n", cpuTopo.getSocketNum());
 	printf("  Cache Line Size:%u bytes\n", cpuTopo.getLineSize());
 	printf("  Hybrid System:  %s\n", cpuTopo.isHybrid() ? "Yes (P-cores + E-cores)" : "No");
 	printf("\n");
@@ -81,8 +80,8 @@ void printLogicalCpuDetails()
 			default:          coreTypeStr = "Unknown"; break;
 		}
 
-		printf("  CPU %-2u: Socket=%u Core=%u Type=%-11s Siblings=[",
-			logCpu.index, logCpu.physicalId, logCpu.coreId, coreTypeStr);
+		printf("  CPU %-2u: Core=%u Type=%-11s Siblings=[",
+			logCpu.index, logCpu.coreId, coreTypeStr);
 
 		bool first = true;
 		for (const auto& idx : logCpu.siblingIndices) {
