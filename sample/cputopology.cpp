@@ -28,7 +28,7 @@ void printCpuMaskTest()
 	mask.append(5);
 	mask.append(7);
 
-		printf("Created CpuMask with CPUs: 0, 2, 5, 7\n");
+	printf("Created CpuMask with CPUs: 0, 2, 5, 7\n");
 	printf("Iterating through set CPUs:\n");
 	for (CpuMask::iterator it = mask.begin(); it != mask.end(); ++it) {
 		printf("  CPU %u is set\n", *it);
@@ -37,14 +37,11 @@ void printCpuMaskTest()
 	printf("\n");
 }
 
-void printSystemTopology()
+void printSystemTopology(const CpuTopology& cpuTopo)
 {
 	printSeparator();
 	printf("CpuTopology Class - System CPU topology\n");
 	printSeparator();
-
-	Cpu cpu;
-	CpuTopology cpuTopo(cpu);
 
 	printf("System Configuration:\n");
 	printf("  Logical CPUs:   %zu\n", cpuTopo.getLogicalCpuNum());
@@ -54,14 +51,11 @@ void printSystemTopology()
 	printf("\n");
 }
 
-void printLogicalCpuDetails()
+void printLogicalCpuDetails(const CpuTopology& cpuTopo)
 {
 	printSeparator();
 	printf("LogicalCpu Class - Per-CPU topology information\n");
 	printSeparator();
-
-	Cpu cpu;
-	CpuTopology cpuTopo(cpu);
 
 	printf("Detailed CPU Topology (showing upto 32 Logical CPUs):\n");
 	size_t maxCpusToPrint = 32;
@@ -79,7 +73,7 @@ void printLogicalCpuDetails()
 			default:          coreTypeStr = "Unknown"; break;
 		}
 
-		printf("  CPU %-2zu: Core=%u Type=%-8s Siblings=", i, logCpu.coreId, coreTypeStr);
+		printf("  CPU %3zu: Core=%u Type=%s Siblings=", i, logCpu.coreId, coreTypeStr);
 		logCpu.getSiblings().put();
 	}
 
@@ -89,19 +83,11 @@ void printLogicalCpuDetails()
 	printf("\n");
 }
 
-void printCacheHierarchy()
+void printCacheHierarchy(const CpuTopology& cpuTopo)
 {
 	printSeparator();
 	printf("CpuCache Class - Cache hierarchy and sharing\n");
 	printSeparator();
-
-	Cpu cpu;
-	CpuTopology cpuTopo(cpu);
-
-	if (cpuTopo.getLogicalCpuNum() == 0) {
-		printf("No CPU information available\n\n");
-		return;
-	}
 
 	const char* cacheNames[] = {"L1i", "L1d", "L2", "L3"};
 
@@ -195,19 +181,11 @@ void printCacheHierarchy()
 	printf("\n");
 }
 
-void printCacheSharingDetails()
+void printCacheSharingDetails(const CpuTopology& cpuTopo)
 {
 	printSeparator();
 	printf("Cache Sharing Analysis\n");
 	printSeparator();
-
-	Cpu cpu;
-	CpuTopology cpuTopo(cpu);
-
-	if (cpuTopo.getLogicalCpuNum() == 0) {
-		printf("No CPU information available\n\n");
-		return;
-	}
 
 	const char* cacheNames[] = {"L1i", "L1d", "L2", "L3"};
 
@@ -301,28 +279,27 @@ void printCacheSharingDetails()
 }
 
 int main()
+	try
 {
 	printf("\n");
 	printf("Xbyak CPU Cache Topology API Test\n");
 	printf("==================================\n");
 	printf("\n");
 
-	try {
-		// Test each class
-		printCpuMaskTest();
-		printSystemTopology();
-		printLogicalCpuDetails();
-		printCacheHierarchy();
-		printCacheSharingDetails();
+	Cpu cpu;
+	CpuTopology cpuTopo(cpu);
 
-		printSeparator();
-		printf("All tests completed successfully!\n");
-		printSeparator();
-		printf("\n");
+	printCpuMaskTest();
+	printSystemTopology(cpuTopo);
+	printLogicalCpuDetails(cpuTopo);
+	printCacheHierarchy(cpuTopo);
+	printCacheSharingDetails(cpuTopo);
 
-		return 0;
-	} catch (...) {
-		printf("Error: Exception occurred during testing\n");
-		return 1;
-	}
+	printSeparator();
+	printf("All tests completed successfully!\n");
+	printSeparator();
+	printf("\n");
+} catch (std::exception& e) {
+	printf("Error: %s\n", e.what());
+	return 1;
 }
