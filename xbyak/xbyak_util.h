@@ -912,7 +912,9 @@ public:
 		}
 		// If the value to add is 1 greater than the end of the current interval
 		const uint32_t n = get_a(n_);
-		if (get_a(n_ - 1) + n + 1 == v) {
+		const uint32_t prev = get_a(n_ - 1) + n;
+		if (prev >= v) return false;
+		if (prev + 1 == v) {
 			// Increase the interval length by one
 			set_a(n_, n + 1);
 			return true;
