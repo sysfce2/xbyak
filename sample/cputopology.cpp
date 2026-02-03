@@ -80,16 +80,9 @@ void printLogicalCpuDetails()
 			default:          coreTypeStr = "Unknown"; break;
 		}
 
-		printf("  CPU %-2u: Core=%u Type=%-11s Siblings=[",
+		printf("  CPU %-2u: Core=%u Type=%-11s Siblings=",
 			logCpu.index, logCpu.coreId, coreTypeStr);
-
-		bool first = true;
-		for (const auto& idx : logCpu.siblingIndices) {
-			if (!first) printf(",");
-			printf("%u", idx);
-			first = false;
-		}
-		printf("]\n");
+		logCpu.cache[L1i].sharedCpuIndices.put();
 	}
 
 	if (numCpus > maxCpusToPrint) {

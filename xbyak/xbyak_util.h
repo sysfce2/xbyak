@@ -975,8 +975,9 @@ public:
 		printf("n_: %u\n", (uint32_t)n_);
 		printf("range_: %u\n", (uint32_t)range_);
 	}
-	void put() const
+	void put(const char *label = nullptr) const
 	{
+		if (label) printf("%s: ", label);
 		if (empty()) {
 			printf("empty\n");
 			return;
@@ -1063,7 +1064,6 @@ struct LogicalCpu {
 		: index(0)
 		, coreId(0)
 		, coreType(Unknown)
-		, siblingIndices()
 		, cache()
 	{
 	}
@@ -1074,7 +1074,8 @@ struct LogicalCpu {
 	// Core type (for hybrid systems)
 	CoreType coreType;
 	// Sibling thread indices sharing the same physical core
-	CpuMask siblingIndices;
+	//	CpuMask siblingIndices;
+	// use cache[L1i].sharedCpuIndices instead
 	// Cache information for each cache type
 	CpuCache cache[CACHE_TYPE_NUM];
 };
@@ -1140,7 +1141,7 @@ inline uint32_t popcnt(uint64_t mask)
 }
 
 #ifdef _WIN32
-inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
+inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
 {
 	typedef SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX processorInfo;
 
@@ -1220,14 +1221,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 		logCpu.index = cpuIdx;
 		logCpu.coreId = coreInfoMap[cpuIdx].coreId;
 		logCpu.coreType = coreInfoMap[cpuIdx].coreType;
-
-		// Set sibling indices
-		KAFFINITY siblingMask = coreInfoMap[cpuIdx].siblingMask;
-		for (uint32_t bit = 0; bit < numLogicalCpus && bit < 64; bit++) {
-			if (siblingMask & (KAFFINITY(1) << bit)) {
-				logCpu.siblingIndices.append(bit);
-			}
-		}
 	}
 
 	// Second pass: Get cache information
@@ -1371,11 +1364,6 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 			"/sys/devices/system/cpu/cpu%u/topology/core_id", cpuIdx);
 		logCpu.coreId = readIntFromFile(path);
 		uniqueCores.insert(logCpu.coreId);
-
-		// Read thread siblings (SMT)
-		snprintf(path, sizeof(path),
-			"/sys/devices/system/cpu/cpu%u/topology/thread_siblings_list", cpuIdx);
-		parseCpuList(path, logCpu.siblingIndices);
 
 		// Determine core type (for hybrid architectures)
 		logCpu.coreType = Standard;
