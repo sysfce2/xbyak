@@ -1080,7 +1080,9 @@ public:
 		, lineSize_(0)
 		, isHybrid_(cpu.has(cpu.tHYBRID))
 	{
-		impl::initCpuTopology(*this, cpu);
+		if (!impl::initCpuTopology(*this, cpu)) {
+			XBYAK_THROW(ERR_CANT_INIT_CPUTOPOLOGY);
+		}
 	}
 
 	// Number of logical CPUs

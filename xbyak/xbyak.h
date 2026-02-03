@@ -242,6 +242,7 @@ enum {
 	ERR_INVALID_REG_IDX,
 	ERR_BAD_ENCODING_MODE,
 	ERR_CANT_USE_ABCDH,
+	ERR_CANT_INIT_CPUTOPOLOGY,
 	ERR_INTERNAL // Put it at last.
 };
 
@@ -302,6 +303,7 @@ inline const char *ConvertErrorToString(int err)
 		"invalid reg index",
 		"bad encoding mode",
 		"can't use [abcd]h with rex",
+		"can't init CpuTopology",
 		"internal error"
 	};
 	assert(ERR_INTERNAL + 1 == sizeof(errTbl) / sizeof(*errTbl));
