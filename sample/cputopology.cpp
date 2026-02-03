@@ -23,12 +23,12 @@ void printCpuMaskTest()
 	printSeparator();
 
 	CpuMask mask;
-	mask.set(0);
-	mask.set(2);
-	mask.set(5);
-	mask.set(7);
+	mask.append(0);
+	mask.append(2);
+	mask.append(5);
+	mask.append(7);
 
-	printf("Created CpuMask with CPUs: 0, 2, 5, 7\n");
+		printf("Created CpuMask with CPUs: 0, 2, 5, 7\n");
 	printf("Iterating through set CPUs:\n");
 	for (CpuMask::iterator it = mask.begin(); it != mask.end(); ++it) {
 		printf("  CPU %u is set\n", *it);

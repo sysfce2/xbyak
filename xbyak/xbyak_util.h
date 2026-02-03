@@ -100,6 +100,9 @@
 #ifndef XBYAK_MAX_CPU_NUM
 	#define XBYAK_MAX_CPU_NUM 256
 #endif
+#ifndef XBYAK_CPUMASK_COMPACT
+	#define XBYAK_CPUMASK_COMPACT 1
+#endif
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -806,10 +809,196 @@ enum CacheType {
 	L1d,
 	L2,
 	L3,
-	CACHE_TYPE_NUM
+	CACHE_UNKNOWN,
+	CACHE_TYPE_NUM = CACHE_UNKNOWN
 };
 
-#if 1
+#if XBYAK_CPUMASK_COMPACT == 1
+/*
+	a_ is treated as an array of N elements, each being bitN bits
+	a_ = 1<<bitN and n_ = 0 and range_ = 0 means empty set
+	n_ is length of a_[] - 1
+	When range_ is false (discrete values):
+		Values satisfy a_[i] + 1 < a_[i+1] for all 0 <= i <= n_
+	When range_ is true (intervals):
+		v = a_[i*2] is the start of the interval
+		n = a_[i*2+1] is the interval length - 1
+		Represents the interval [v, v+n]
+	Max number of cpu = 2**bitN - 1
+	Max value that can be stored = N
+	Max interval length = N/2
+*/
+#ifndef XBYAK_CPUMASK_N
+#define XBYAK_CPUMASK_N 6
+#endif
+#ifndef XBYAK_CPUMASK_BITN
+#define XBYAK_CPUMASK_BITN 10
+#endif
+class CpuMask {
+	static const uint32_t N = XBYAK_CPUMASK_N;
+	static const uint32_t bitN = XBYAK_CPUMASK_BITN;
+	static const uint64_t mask = (uint64_t(1) << bitN) - 1;
+	uint64_t a_:N*bitN;
+	uint64_t n_:3;
+	uint64_t range_:1;
+
+	// Set a_[idx] = v
+	void set_a(size_t idx, uint32_t v)
+	{
+		assert(idx < N);
+		assert(v <= mask);
+		a_ &= ~(mask << (idx*bitN));
+		a_ |= (v & mask) << (idx*bitN);
+	}
+	// Get a_[idx]
+	uint32_t get_a(size_t idx) const
+	{
+		assert(idx < N);
+		return (a_ >> (idx*bitN)) & mask;
+	}
+public:
+	CpuMask() : a_(1<<bitN), n_(0), range_(0) {}
+	class ConstIterator {
+		const CpuMask& parent_;
+		size_t idx_;
+		size_t size_;
+		friend class CpuMask;
+	public:
+		ConstIterator(const CpuMask& parent)
+			: parent_(parent), idx_(0), size_(parent.size()) {}
+		uint32_t operator*() const { return parent_.get(uint32_t(idx_)); }
+		ConstIterator& operator++() { idx_++; return *this; }
+		bool operator==(const ConstIterator& rhs) const { return idx_ == rhs.idx_; }
+		bool operator!=(const ConstIterator& rhs) const { return !operator==(rhs); }
+	};
+	ConstIterator begin() const { return ConstIterator(*this); }
+	ConstIterator end() const {
+		ConstIterator it(*this);
+		it.idx_ = size();
+		return it;
+	}
+	typedef ConstIterator iterator;
+	typedef ConstIterator const_iterator;
+	bool empty() const
+	{
+		return a_ == 1 << bitN && n_ == 0 && range_ == 0;
+	}
+	// Add element v
+	// v should be monotonically increasing
+	bool append(uint32_t v)
+	{
+		if (v > mask) return false;
+		// When adding for the first time, treat as discrete value
+		if (empty()) {
+			a_ = v;
+			n_ = 0;
+			return true;
+		}
+		if (!range_) {
+			const uint32_t prev = get_a(n_);
+			if (v <= prev) return false;
+			// If there's one discrete value and it forms an interval with the new value, switch to interval mode
+			if (n_ == 0 && prev + 1 == v) {
+				set_a(1, 1);
+				range_ = 1;
+				n_ = 1;
+				return true;
+			}
+			if (n_ >= N - 1) return false;
+			// Add discrete value
+			n_++;
+			set_a(n_, v);
+			return true;
+		}
+		// If the value to add is 1 greater than the end of the current interval
+		const uint32_t n = get_a(n_);
+		if (get_a(n_ - 1) + n + 1 == v) {
+			// Increase the interval length by one
+			set_a(n_, n + 1);
+			return true;
+		} else {
+			if (n_ >= N - 1) return false;
+			// If not continuous with the previous interval
+			// Add a new interval [v]
+			set_a(n_ + 1, v);
+			n_ += 2;
+			return true;
+		}
+	}
+	size_t size() const
+	{
+		if (empty()) return 0;
+		if (!range_) return n_ + 1;
+		size_t n = 0;
+		for (uint32_t i = 1; i <= n_; i += 2) {
+			n += get_a(i) + 1;
+		}
+		return n;
+	}
+#ifndef NDEBUG
+	// Return true if the idx-th value exists
+	bool hasNext(uint32_t idx) const
+	{
+		if (empty()) return false;
+		if (!range_) return idx <= n_;
+		uint32_t n = 0;
+		for (uint32_t i = 1; i <= n_; i += 2) {
+			n += get_a(i) + 1;
+			if (idx < n) return true;
+		}
+		return false;
+	}
+#endif
+	uint32_t get(uint32_t idx) const
+	{
+		assert(hasNext(idx));
+		if (!range_) return get_a(idx);
+		uint32_t n = 0;
+		for (uint32_t i = 1; i <= n_; i += 2) {
+			uint32_t range = get_a(i) + 1;
+			if (idx < n + range) {
+				return get_a(i - 1) + (idx - n);
+			}
+			n += range;
+		}
+		return false;
+	}
+	void dump() const
+	{
+		printf("a_:");
+		for (int i = int(N) - 1; i >= 0; i--) {
+			printf("%u ", uint32_t((a_ >> (i * bitN)) & mask));
+		}
+		printf("\n");
+		printf("n_: %u\n", (uint32_t)n_);
+		printf("range_: %u\n", (uint32_t)range_);
+	}
+	void put() const
+	{
+		if (empty()) {
+			printf("empty\n");
+			return;
+		}
+		if (!range_) {
+			for (uint32_t i = 0; i <= n_; i++) {
+				printf("%u ", get_a(i));
+			}
+			printf("\n");
+			return;
+		}
+		for (uint32_t i = 0; i <= n_; i += 2) {
+			uint32_t v = get_a(i);
+			uint32_t len = get_a(i + 1);
+			if (len == 0) {
+				printf("[%u] ", v);
+			} else {
+				printf("[%u-%u] ", v, v + len);
+			}
+		}
+		printf("\n");
+	}
+};
+#else
 class CpuMask {
 	typedef std::set<uint32_t> IntSet;
 	IntSet indices_;
@@ -818,8 +1007,10 @@ public:
 	typedef const_iterator iterator;
 	CpuMask() : indices_() {}
 	size_t size() const { return indices_.size(); }
-	void set(uint32_t idx)
+	// idx should be monotonically increasing
+	void append(uint32_t idx)
 	{
+		assert(indices_.empty() || *indices_.rbegin() < idx);
 		indices_.insert(idx);
 	}
 	iterator begin() { return indices_.begin(); }
@@ -841,52 +1032,6 @@ public:
 		} else {
 			printf("%s\n", s.c_str());
 		}
-	}
-};
-#else
-class CpuMask {
-	static const uint32_t N = XBYAK_MAX_CPU_NUM / 8;
-	uint8_t v_[N];
-public:
-	CpuMask() : v_() {}
-	class iterator {
-		uint32_t idx_;
-		const CpuMask& parent_;
-	public:
-		iterator(uint32_t idx, const CpuMask& parent) : idx_(idx), parent_(parent) {}
-		iterator& operator++()
-		{
-			idx_++;
-			return *this;
-		}
-		uint32_t operator*() const { return idx_; }
-		bool operator!=(const iterator& rhs) const { return idx_ != rhs.idx_; }
-	};
-	iterator begin() const
-	{
-		for (uint32_t i = 0; i < XBYAK_MAX_CPU_NUM; i++) {
-			if (get(i)) return iterator(i, *this);
-		}
-		return iterator(XBYAK_MAX_CPU_NUM, *this);
-	}
-	iterator end() const { return iterator(XBYAK_MAX_CPU_NUM, *this); }
-	bool get(uint32_t cpuIdx) const
-	{
-		if (cpuIdx >= XBYAK_MAX_CPU_NUM) return false;
-		return (v_[cpuIdx / 8] & (1 << (cpuIdx % 8))) != 0;
-	}
-	void set(uint32_t cpuIdx)
-	{
-		if (cpuIdx >= XBYAK_MAX_CPU_NUM) return;
-		v_[cpuIdx / 8] |= (1 << (cpuIdx % 8));
-	}
-	uint32_t size() const
-	{
-		uint32_t n = 0;
-		for (iterator itr = begin(), e = this->end(); itr != e; ++itr) {
-			if (get(*itr)) n++;
-		}
-		return n;
 	}
 };
 #endif
@@ -1086,7 +1231,7 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 		KAFFINITY siblingMask = coreInfoMap[cpuIdx].siblingMask;
 		for (uint32_t bit = 0; bit < numLogicalCpus && bit < 64; bit++) {
 			if (siblingMask & (KAFFINITY(1) << bit)) {
-				logCpu.siblingIndices.set(bit);
+				logCpu.siblingIndices.append(bit);
 			}
 		}
 	}
@@ -1113,26 +1258,21 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 			KAFFINITY mask = cache.GroupMask.Mask;
 
 			// Determine cache type
-			CacheType cacheType;
-			bool validCache = false;
+			CacheType cacheType = CACHE_UNKNOWN;
 
 			if (cache.Level == 1) {
 				if (cache.Type == CacheInstruction) {
 					cacheType = L1i;
-					validCache = true;
 				} else if (cache.Type == CacheData) {
 					cacheType = L1d;
-					validCache = true;
 				}
 			} else if (cache.Level == 2) {
 				cacheType = L2;
-				validCache = true;
 			} else if (cache.Level == 3) {
 				cacheType = L3;
-				validCache = true;
 			}
 
-			if (validCache) {
+			if (cacheType != CACHE_UNKNOWN) {
 				// Apply this cache info to all logical CPUs in the mask
 				for (uint32_t cpuIdx = 0; cpuIdx < numLogicalCpus && cpuIdx < 64; cpuIdx++) {
 					if (mask & (KAFFINITY(1) << cpuIdx)) {
@@ -1144,7 +1284,7 @@ inline void initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 						// Set shared CPU indices
 						for (uint32_t bit = 0; bit < numLogicalCpus && bit < 64; bit++) {
 							if (mask & (KAFFINITY(1) << bit)) {
-								cpuCache.sharedCpuIndices.set(bit);
+								cpuCache.sharedCpuIndices.append(bit);
 							}
 						}
 					}
@@ -1163,7 +1303,9 @@ inline uint32_t readIntFromFile(const char* path) {
 	FILE* f = fopen(path, "r");
 	if (!f) return 0;
 	uint32_t val = 0;
-	fscanf(f, "%u", &val);
+	int n = fscanf(f, "%u", &val);
+	assert(n == 1);
+	(void)n;
 	fclose(f);
 	return val;
 }
@@ -1192,11 +1334,11 @@ inline void parseCpuList(const char* path, CpuMask& mask) {
 				if (*p == '-') {
 					p++;
 					if (sscanf(p, "%u", &end) == 1) {
-						for (uint32_t i = start; i <= end; i++) mask.set(i);
+						for (uint32_t i = start; i <= end; i++) mask.append(i);
 						while (*p && *p != ',' && *p != '\n') p++;
 					}
 				} else {
-					mask.set(start);
+					mask.append(start);
 				}
 			}
 			if (*p == ',') p++;
