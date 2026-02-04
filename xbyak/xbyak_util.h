@@ -1255,31 +1255,35 @@ inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
 
 #elif __linux__ // Linux
 
+struct WrapFILE {
+	FILE *f;
+	explicit WrapFILE(const char *name)
+		: f(fopen(name, "r"))
+	{
+	}
+	~WrapFILE() { if (f) fclose(f); }
+};
+
 inline uint32_t readIntFromFile(const char* path) {
-	FILE* f = fopen(path, "r");
-	if (!f) return 0;
+	WrapFILE wf(path);
+	if (!wf.f) return 0;
 	uint32_t val = 0;
-	int n = fscanf(f, "%u", &val);
+	int n = fscanf(wf.f, "%u", &val);
 	assert(n == 1);
 	(void)n;
-	fclose(f);
 	return val;
 }
 
 inline bool fileExists(const char* path) {
-	FILE* f = fopen(path, "r");
-	if (f) {
-		fclose(f);
-		return true;
-	}
-	return false;
+	WrapFILE wf(path);
+	return wf.f != 0;
 }
 
 inline void parseCpuList(const char* path, CpuMask& mask) {
-	FILE* f = fopen(path, "r");
-	if (!f) return;
+	WrapFILE wf(path);
+	if (!wf.f) return;
 	char buf[1024];
-	if (fgets(buf, sizeof(buf), f)) {
+	if (fgets(buf, sizeof(buf), wf.f)) {
 		// Parse ranges like "0-3" or "0,2,4-7"
 		char* p = buf;
 		while (*p) {
@@ -1301,7 +1305,6 @@ inline void parseCpuList(const char* path, CpuMask& mask) {
 			else break;
 		}
 	}
-	fclose(f);
 }
 
 inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
@@ -1373,58 +1376,58 @@ inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
 			// Map cache index to cache type
 			snprintf(path, sizeof(path),
 				"/sys/devices/system/cpu/cpu%u/cache/index%u/type", cpuIdx, cacheIdx);
-			FILE* f = fopen(path, "r");
-			if (!f) continue;
+			{
+				WrapFILE wf(path);
+				if (!wf.f) continue;
 
-			char typeStr[32];
-			if (fgets(typeStr, sizeof(typeStr), f)) {
-				if (strncmp(typeStr, "Instruction", 11) == 0) {
-					cacheType = L1i;
-				} else if (strncmp(typeStr, "Data", 4) == 0) {
-					// Determine level
-					char levelPath[256];
-					snprintf(levelPath, sizeof(levelPath),
-						"/sys/devices/system/cpu/cpu%u/cache/index%u/level", cpuIdx, cacheIdx);
-					uint32_t level = readIntFromFile(levelPath);
-					if (level == 1) cacheType = L1d;
-					else if (level == 2) cacheType = L2;
-					else if (level == 3) cacheType = L3;
-					else { fclose(f); continue; }
-				} else if (strncmp(typeStr, "Unified", 7) == 0) {
-					char levelPath[256];
-					snprintf(levelPath, sizeof(levelPath),
-						"/sys/devices/system/cpu/cpu%u/cache/index%u/level", cpuIdx, cacheIdx);
-					uint32_t level = readIntFromFile(levelPath);
-					if (level == 2) cacheType = L2;
-					else if (level == 3) cacheType = L3;
-					else { fclose(f); continue; }
+				char typeStr[32];
+				if (fgets(typeStr, sizeof(typeStr), wf.f)) {
+					if (strncmp(typeStr, "Instruction", 11) == 0) {
+						cacheType = L1i;
+					} else if (strncmp(typeStr, "Data", 4) == 0) {
+						// Determine level
+						char levelPath[256];
+						snprintf(levelPath, sizeof(levelPath),
+							"/sys/devices/system/cpu/cpu%u/cache/index%u/level", cpuIdx, cacheIdx);
+						uint32_t level = readIntFromFile(levelPath);
+						if (level == 1) cacheType = L1d;
+						else if (level == 2) cacheType = L2;
+						else if (level == 3) cacheType = L3;
+						else { continue; }
+					} else if (strncmp(typeStr, "Unified", 7) == 0) {
+						char levelPath[256];
+						snprintf(levelPath, sizeof(levelPath),
+							"/sys/devices/system/cpu/cpu%u/cache/index%u/level", cpuIdx, cacheIdx);
+						uint32_t level = readIntFromFile(levelPath);
+						if (level == 2) cacheType = L2;
+						else if (level == 3) cacheType = L3;
+						else { continue; }
+					} else {
+						continue;
+					}
 				} else {
-					fclose(f);
 					continue;
 				}
-			} else {
-				fclose(f);
-				continue;
 			}
-			fclose(f);
 
 			CpuCache& cache = cpuTopo.logicalCpus_[cpuIdx].cache[cacheType];
 
 			// Read cache size
 			snprintf(path, sizeof(path),
 				"/sys/devices/system/cpu/cpu%u/cache/index%u/size", cpuIdx, cacheIdx);
-			f = fopen(path, "r");
-			if (f) {
-				char sizeStr[32];
-				if (fgets(sizeStr, sizeof(sizeStr), f)) {
-					uint32_t size = 0;
-					char unit = 'K';
-					sscanf(sizeStr, "%u%c", &size, &unit);
-					if (unit == 'K' || unit == 'k') cache.size = size * 1024;
-					else if (unit == 'M' || unit == 'm') cache.size = size * 1024 * 1024;
-					else cache.size = size;
+			{
+				WrapFILE wf(path);
+				if (wf.f) {
+					char sizeStr[32];
+					if (fgets(sizeStr, sizeof(sizeStr), wf.f)) {
+						uint32_t size = 0;
+						char unit = 'K';
+						sscanf(sizeStr, "%u%c", &size, &unit);
+						if (unit == 'K' || unit == 'k') cache.size = size * 1024;
+						else if (unit == 'M' || unit == 'm') cache.size = size * 1024 * 1024;
+						else cache.size = size;
+					}
 				}
-				fclose(f);
 			}
 
 			// Read ways of associativity
