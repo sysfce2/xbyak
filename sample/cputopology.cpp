@@ -51,6 +51,16 @@ void printSystemTopology(const CpuTopology& cpuTopo)
 	printf("\n");
 }
 
+const char *type2str(int coreType)
+{
+	switch (coreType) {
+	case Performance: return "P-core";
+	case Efficient: return "E-core";
+	case Standard: return "Standard";
+	default: return "Unknown";
+	}
+}
+
 void printLogicalCpuDetails(const CpuTopology& cpuTopo)
 {
 	printSeparator();
@@ -63,17 +73,7 @@ void printLogicalCpuDetails(const CpuTopology& cpuTopo)
 
 	for (size_t i = 0; i < numCpus && i < maxCpusToPrint; i++) {
 		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(i);
-
-		// Determine core type string
-		const char* coreTypeStr;
-		switch (logCpu.coreType) {
-			case Performance: coreTypeStr = "P-core"; break;
-			case Efficient:   coreTypeStr = "E-core"; break;
-			case Standard:    coreTypeStr = "Standard"; break;
-			default:          coreTypeStr = "Unknown"; break;
-		}
-
-		printf("  CPU %3zu: Core=%u Type=%s Siblings=", i, logCpu.coreId, coreTypeStr);
+		printf("  CPU %3zu: Core=%u Type=%s Siblings=", i, logCpu.coreId, type2str(logCpu.coreType));
 		logCpu.getSiblings().put();
 	}
 
@@ -102,16 +102,7 @@ void printCacheHierarchy(const CpuTopology& cpuTopo)
 		// Create a signature string that uniquely identifies the cache topology
 		char signature[512];
 		int offset = 0;
-
-		// Include core type in signature
-		const char* coreTypeStr = "";
-		switch (logCpu.coreType) {
-			case Performance: coreTypeStr = "P-core"; break;
-			case Efficient:   coreTypeStr = "E-core"; break;
-			case Standard:    coreTypeStr = "Standard"; break;
-			default:          coreTypeStr = "Unknown"; break;
-		}
-		offset += snprintf(signature + offset, sizeof(signature) - offset, "%s:", coreTypeStr);
+		offset += snprintf(signature + offset, sizeof(signature) - offset, "%s:", type2str(logCpu.coreType));
 
 		// Add cache properties to signature
 		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
@@ -138,15 +129,7 @@ void printCacheHierarchy(const CpuTopology& cpuTopo)
 		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(firstCpu);
 
 		// Print core type and CPU list
-		const char* coreTypeStr = "";
-		switch (logCpu.coreType) {
-			case Performance: coreTypeStr = "P-core"; break;
-			case Efficient:   coreTypeStr = "E-core"; break;
-			case Standard:    coreTypeStr = "Standard"; break;
-			default:          coreTypeStr = "Unknown"; break;
-		}
-
-		printf("\n%s (CPUs [", coreTypeStr);
+		printf("\n%s (CPUs [", type2str(logCpu.coreType));
 		for (size_t i = 0; i < cpuList.size(); i++) {
 			if (i > 0) printf(", ");
 			printf("%zu", cpuList[i]);
@@ -199,16 +182,7 @@ void printCacheSharingDetails(const CpuTopology& cpuTopo)
 		// Create a signature string that uniquely identifies the cache topology
 		char signature[512];
 		int offset = 0;
-
-		// Include core type in signature
-		const char* coreTypeStr = "";
-		switch (logCpu.coreType) {
-			case Performance: coreTypeStr = "P-core"; break;
-			case Efficient:   coreTypeStr = "E-core"; break;
-			case Standard:    coreTypeStr = "Standard"; break;
-			default:          coreTypeStr = "Unknown"; break;
-		}
-		offset += snprintf(signature + offset, sizeof(signature) - offset, "%s:", coreTypeStr);
+		offset += snprintf(signature + offset, sizeof(signature) - offset, "%s:", type2str(logCpu.coreType));
 
 		// Add cache properties to signature
 		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
@@ -231,16 +205,7 @@ void printCacheSharingDetails(const CpuTopology& cpuTopo)
 		size_t firstCpu = cpuList[0];
 		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(firstCpu);
 
-		// Print core type
-		const char* coreTypeStr = "";
-		switch (logCpu.coreType) {
-			case Performance: coreTypeStr = "P-core"; break;
-			case Efficient:   coreTypeStr = "E-core"; break;
-			case Standard:    coreTypeStr = "Standard"; break;
-			default:          coreTypeStr = "Unknown"; break;
-		}
-
-		printf("%s Topology (representative CPU %zu):\n", coreTypeStr, firstCpu);
+		printf("%s Topology (representative CPU %zu):\n", type2str(logCpu.coreType), firstCpu);
 
 		// Analyze each cache level
 		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
