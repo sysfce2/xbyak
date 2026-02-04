@@ -259,9 +259,9 @@ void printCacheSharingDetails(const CpuTopology& cpuTopo)
 				if (cache.isShared()) {
 					printf("    Shared by %zu CPUs: ", cache.getSharedCpuNum());
 					int count = 0;
-					for (const auto& idx : cache.sharedCpuIndices) {
+					for (CpuMask::const_iterator i = cache.sharedCpuIndices.begin(), ie = cache.sharedCpuIndices.end(); i != ie; ++i) {
 						if (count > 0) printf(",");
-						printf("%u", idx);
+						printf("%u", *i);
 						count++;
 						if (count > 20) {
 							printf("...");

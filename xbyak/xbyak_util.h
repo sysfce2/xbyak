@@ -88,11 +88,7 @@
 #endif
 
 #ifndef XBYAK_CPU_CACHE
-	#if ((__cplusplus >= 201103L) || (defined(_MSC_VER) && _MSC_VER >= 1700))
-		#define XBYAK_CPU_CACHE 1
-	#else
-		#define XBYAK_CPU_CACHE 0
-	#endif
+	#define XBYAK_CPU_CACHE 1
 #endif
 #if XBYAK_CPU_CACHE == 1
 #include <vector>
@@ -974,7 +970,7 @@ public:
 		printf("n_: %u\n", (uint32_t)n_);
 		printf("range_: %u\n", (uint32_t)range_);
 	}
-	void put(const char *label = nullptr) const
+	void put(const char *label = NULL) const
 	{
 		if (label) printf("%s: ", label);
 		if (empty()) {
@@ -1019,14 +1015,14 @@ public:
 	iterator end() { return indices_.end(); }
 	const_iterator begin() const { return indices_.begin(); }
 	const_iterator end() const { return indices_.end(); }
-	void put(const char *label = nullptr) const
+	void put(const char *label = NULL) const
 	{
 		if (label) printf("%s: ", label);
 		std::string s;
 		s.reserve(size() * 3);
-		for (const auto& i : *this) {
+		for (const_iterator i = begin(), ie = end(); i != ie; ++i) {
 			char buf[16];
-			snprintf(buf, sizeof(buf), "%d ", i);
+			snprintf(buf, sizeof(buf), "%d ", *i);
 			s += buf;
 		}
 		if (size() > 2 && *indices_.rbegin() - *begin() + 1 == size()) {
@@ -1140,7 +1136,7 @@ typedef SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX ProcInfo;
 // return number of physical cores if successful, 0 if failed
 static inline uint32_t getCores(std::vector<LogicalCpu>& cpus, bool isHybrid) {
 	DWORD len = 0;
-	GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &len);
+	GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &len);
 	std::vector<char> buf(len);
 	if (!GetLogicalProcessorInformationEx(RelationProcessorCore, reinterpret_cast<ProcInfo*>(buf.data()), &len)) return 0;
 	// get core indices
@@ -1218,7 +1214,7 @@ inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
 	if (cpuTopo.physicalCoreNum_ == 0) return false;
 
 	DWORD len = 0;
-	GetLogicalProcessorInformationEx(RelationCache, nullptr, &len);
+	GetLogicalProcessorInformationEx(RelationCache, NULL, &len);
 	std::vector<char> buf(len);
 	if (!GetLogicalProcessorInformationEx(RelationCache, reinterpret_cast<ProcInfo*>(buf.data()), &len)) return false;
 	const char *p = buf.data();
