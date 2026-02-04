@@ -18,6 +18,7 @@
 #endif
 #else
 #include <string.h>
+#include <cstdio>
 
 /**
 	utility class and functions for Xbyak
@@ -449,7 +450,7 @@ public:
 	{
 #ifdef XBYAK_INTEL_CPU_SPECIFIC
 	#ifdef _MSC_VER
-		return __cpuidex(reinterpret_cast<int*>(data), eaxIn, ecxIn);
+		__cpuidex(reinterpret_cast<int*>(data), eaxIn, ecxIn);
 	#else
 		__cpuid_count(eaxIn, ecxIn, data[0], data[1], data[2], data[3]);
 	#endif
