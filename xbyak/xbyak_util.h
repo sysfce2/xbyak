@@ -1338,36 +1338,8 @@ inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
 		logCpu.coreId = readIntFromFile(path);
 		if (logCpu.coreId > physicalCoreNum) physicalCoreNum = logCpu.coreId;
 
-		// Determine core type (for hybrid architectures)
+		// Initialize all cores to Standard type
 		logCpu.coreType = Standard;
-		if (isHybrid) {
-			// For hybrid systems, we need to check the core type using CPUID
-			// We need to set CPU affinity to read CPUID from specific core
-			cpu_set_t oldMask, newMask;
-			CPU_ZERO(&newMask);
-			CPU_SET(cpuIdx, &newMask);
-			if (sched_getaffinity(0, sizeof(oldMask), &oldMask) == 0) {
-				if (sched_setaffinity(0, sizeof(newMask), &newMask) == 0) {
-					// Read CPUID leaf 0x1A (Hybrid Information)
-					uint32_t data[4] = {};
-					Cpu::getCpuidEx(0x1A, 0, data);
-					// EAX bits 24-31 contain the native model ID
-					uint32_t nativeModelId = (data[0] >> 24) & 0xFF;
-
-					// Intel's convention:
-					// 0x20 = Atom (E-core)
-					// 0x40 = Core (P-core)
-					if (nativeModelId == 0x20) {
-						logCpu.coreType = Efficient;
-					} else if (nativeModelId == 0x40) {
-						logCpu.coreType = Performance;
-					}
-
-					// Restore original affinity
-					sched_setaffinity(0, sizeof(oldMask), &oldMask);
-				}
-			}
-		}
 
 		// Read cache information
 		for (uint32_t cacheIdx = 0; cacheIdx < CACHE_TYPE_NUM; cacheIdx++) {
@@ -1439,6 +1411,29 @@ inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
 			snprintf(path, sizeof(path),
 				"/sys/devices/system/cpu/cpu%u/cache/index%u/shared_cpu_list", cpuIdx, cacheIdx);
 			parseCpuList(path, cache.sharedCpuIndices);
+		}
+	}
+
+	// Assign core types for hybrid architectures
+	if (isHybrid) {
+		// For hybrid systems, read P-core and E-core lists from sysfs
+		CpuMask pCoreMask;
+		parseCpuList("/sys/devices/cpu_core/cpus", pCoreMask);
+		// Set Performance core types
+		for (CpuMask::const_iterator it = pCoreMask.begin(); it != pCoreMask.end(); ++it) {
+			uint32_t cpuIdx = *it;
+			if (cpuIdx < maxCpu) {
+				cpuTopo.logicalCpus_[cpuIdx].coreType = Performance;
+			}
+		}
+		CpuMask eCoreMask;
+		parseCpuList("/sys/devices/cpu_atom/cpus", eCoreMask);
+		// Set Efficient core types
+		for (CpuMask::const_iterator it = eCoreMask.begin(); it != eCoreMask.end(); ++it) {
+			uint32_t cpuIdx = *it;
+			if (cpuIdx < maxCpu) {
+				cpuTopo.logicalCpus_[cpuIdx].coreType = Efficient;
+			}
 		}
 	}
 
