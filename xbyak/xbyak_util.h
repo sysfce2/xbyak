@@ -106,7 +106,7 @@ class CpuTopology;
 class Cpu;
 namespace impl {
 
-bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu);
+bool initCpuTopology(CpuTopology& cpuTopo);
 
 } // Xbyak::util::impl
 } } // Xbyak::util
@@ -1075,7 +1075,7 @@ public:
 		, lineSize_(0)
 		, isHybrid_(cpu.has(cpu.tHYBRID))
 	{
-		if (!impl::initCpuTopology(*this, cpu)) {
+		if (!impl::initCpuTopology(*this)) {
 			XBYAK_THROW(ERR_CANT_INIT_CPUTOPOLOGY);
 		}
 	}
@@ -1104,7 +1104,7 @@ public:
 	// Whether this is a hybrid system
 	bool isHybrid() const { return isHybrid_; }
 private:
-	friend bool impl::initCpuTopology(CpuTopology&, const Cpu&);
+	friend bool impl::initCpuTopology(CpuTopology&);
 	std::vector<LogicalCpu> logicalCpus_;
 	size_t physicalCoreNum_;
 	uint32_t lineSize_;
@@ -1208,7 +1208,7 @@ inline CpuMask convertMask(const std::vector<uint32_t>& groupAcc, const CACHE_RE
 	return out;
 }
 
-inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
+inline bool initCpuTopology(CpuTopology& cpuTopo)
 {
 	cpuTopo.physicalCoreNum_ = getCores(cpuTopo.logicalCpus_, cpuTopo.isHybrid());
 	if (cpuTopo.physicalCoreNum_ == 0) return false;
@@ -1307,7 +1307,7 @@ inline void parseCpuList(const char* path, CpuMask& mask) {
 	}
 }
 
-inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
+inline bool initCpuTopology(CpuTopology& cpuTopo)
 {
 	// Count online CPUs
 	char path[256];
@@ -1444,11 +1444,10 @@ inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
 	return true;
 }
 #else // Other OS (e.g., macOS)
-inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
+inline bool initCpuTopology(CpuTopology& cpuTopo)
 {
 	// CPU topology detection not yet implemented
 	(void)cpuTopo;
-	(void)cpu;
 	return false;
 }
 #endif // _WIN32 / __linux__ / other OS
