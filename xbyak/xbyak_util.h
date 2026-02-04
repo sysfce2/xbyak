@@ -96,12 +96,11 @@
 #endif
 #if XBYAK_CPU_CACHE == 1
 #include <vector>
-#include <set>
-#ifndef XBYAK_MAX_CPU_NUM
-	#define XBYAK_MAX_CPU_NUM 256
-#endif
 #ifndef XBYAK_CPUMASK_COMPACT
 	#define XBYAK_CPUMASK_COMPACT 1
+#endif
+#if XBYAK_CPUMASK_COMPACT == 0
+	#include <set>
 #endif
 #ifdef _WIN32
 #include <windows.h>
@@ -1259,6 +1258,7 @@ inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
 }
 
 #elif __linux__ // Linux
+
 inline uint32_t readIntFromFile(const char* path) {
 	FILE* f = fopen(path, "r");
 	if (!f) return 0;
@@ -1308,26 +1308,26 @@ inline void parseCpuList(const char* path, CpuMask& mask) {
 	fclose(f);
 }
 
-inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
+inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& /*cpu*/)
 {
 	// Count online CPUs
 	char path[256];
 	uint32_t maxCpu = 0;
-	for (uint32_t i = 0; i < XBYAK_MAX_CPU_NUM; i++) {
-		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u", i);
+	for (;;) {
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u", maxCpu);
 		if (!fileExists(path)) break;
-		maxCpu = i + 1;
+		maxCpu++;
 	}
 
 	if (maxCpu == 0) return false;
 
 	// Check if this is a hybrid system
-	bool isHybrid = cpu.has(cpu.tHYBRID);
+	bool isHybrid = cpuTopo.isHybrid();
 
 	// Initialize logical CPUs
 	cpuTopo.logicalCpus_.resize(maxCpu);
 
-	std::set<uint32_t> uniqueCores;
+	uint32_t physicalCoreNum = 0;
 
 	// Read topology for each CPU
 	for (uint32_t cpuIdx = 0; cpuIdx < maxCpu; cpuIdx++) {
@@ -1337,7 +1337,7 @@ inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 		snprintf(path, sizeof(path),
 			"/sys/devices/system/cpu/cpu%u/topology/core_id", cpuIdx);
 		logCpu.coreId = readIntFromFile(path);
-		uniqueCores.insert(logCpu.coreId);
+		if (logCpu.coreId > physicalCoreNum) physicalCoreNum = logCpu.coreId;
 
 		// Determine core type (for hybrid architectures)
 		logCpu.coreType = Standard;
@@ -1371,7 +1371,7 @@ inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 		}
 
 		// Read cache information
-		for (uint32_t cacheIdx = 0; cacheIdx < 4; cacheIdx++) {
+		for (uint32_t cacheIdx = 0; cacheIdx < CACHE_TYPE_NUM; cacheIdx++) {
 			CacheType cacheType;
 
 			// Map cache index to cache type
@@ -1431,13 +1431,6 @@ inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 				fclose(f);
 			}
 
-			if (cpuIdx == 0 && cacheIdx == 0) {
-				// Read coherency line size
-				snprintf(path, sizeof(path),
-					"/sys/devices/system/cpu/cpu%u/cache/index%u/coherency_line_size", cpuIdx, cacheIdx);
-				cpuTopo.lineSize_ = readIntFromFile(path);
-			}
-
 			// Read ways of associativity
 			snprintf(path, sizeof(path),
 				"/sys/devices/system/cpu/cpu%u/cache/index%u/ways_of_associativity", cpuIdx, cacheIdx);
@@ -1450,7 +1443,10 @@ inline bool initCpuTopology(CpuTopology& cpuTopo, const Cpu& cpu)
 		}
 	}
 
-	cpuTopo.physicalCoreNum_ = uniqueCores.size();
+	// Read coherency line size
+	cpuTopo.lineSize_ = readIntFromFile("/sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size");
+
+	cpuTopo.physicalCoreNum_ = physicalCoreNum + 1;
 	return true;
 }
 #else // Other OS (e.g., macOS)
