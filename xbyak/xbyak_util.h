@@ -856,13 +856,13 @@ public:
 	CpuMask() : a_(1<<bitN), n_(0), range_(0) {}
 	class ConstIterator {
 		const CpuMask& parent_;
-		size_t idx_;
-		size_t size_;
+		uint32_t idx_;
+		uint32_t size_;
 		friend class CpuMask;
 	public:
 		ConstIterator(const CpuMask& parent)
-			: parent_(parent), idx_(0), size_(parent.size()) {}
-		uint32_t operator*() const { return parent_.get(uint32_t(idx_)); }
+			: parent_(parent), idx_(0), size_(uint32_t(parent.size())) {}
+		uint32_t operator*() const { return parent_.get(idx_); }
 		ConstIterator& operator++() { idx_++; return *this; }
 		bool operator==(const ConstIterator& rhs) const { return idx_ == rhs.idx_; }
 		bool operator!=(const ConstIterator& rhs) const { return !operator==(rhs); }
@@ -870,7 +870,7 @@ public:
 	ConstIterator begin() const { return ConstIterator(*this); }
 	ConstIterator end() const {
 		ConstIterator it(*this);
-		it.idx_ = size();
+		it.idx_ = uint32_t(size());
 		return it;
 	}
 	typedef ConstIterator iterator;
