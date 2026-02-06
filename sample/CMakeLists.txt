@@ -32,12 +32,12 @@ find_package(Boost QUIET COMPONENTS system)
 function(add_sample_target target_name source_file)
     add_executable(${target_name} ${source_file})
     target_compile_options(${target_name} PRIVATE ${COMMON_COMPILE_FLAGS})
-    
+
     # Set output directory
     set_target_properties(${target_name} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     )
-    
+
     # Platform-specific settings
     if(NOT WIN32)
         find_package(Threads)
@@ -58,13 +58,13 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     add_sample_target(zero_upper zero_upper.cpp)
     add_sample_target(ccmp ccmp.cpp)
     add_sample_target(no_flags no_flags.cpp)
-    
+
     # Boost-dependent targets
     if(Boost_FOUND)
         add_sample_target(calc64 calc.cpp)
         target_link_libraries(calc64 Boost::boost)
     endif()
-    
+
     # Non-macOS targets
     if(NOT APPLE)
         if(UNIX)
@@ -73,7 +73,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
             add_sample_target(memfd memfd.cpp)
         endif()
     endif()
-    
+
     # Additional useful targets
     add_sample_target(quantize quantize.cpp)
 endif()
@@ -85,35 +85,35 @@ option(BUILD_32BIT_TARGETS "Build 32-bit targets on 64-bit systems (requires mul
 
 if(BUILD_32BIT_TARGETS AND NOT APPLE AND CMAKE_SIZEOF_VOID_P EQUAL 8 AND UNIX AND NOT WIN32)
     message(STATUS "Building 32-bit targets (requires multilib)")
-    
+
     add_sample_target(test test0.cpp)
     target_compile_options(test PRIVATE -m32)
     target_link_options(test PRIVATE -m32)
-    
+
     add_sample_target(bf bf.cpp)
     target_compile_options(bf PRIVATE -m32)
     target_link_options(bf PRIVATE -m32)
-    
+
     add_sample_target(toyvm toyvm.cpp)
     target_compile_options(toyvm PRIVATE -m32)
     target_link_options(toyvm PRIVATE -m32)
-    
+
     add_sample_target(test_util test_util.cpp)
     target_compile_options(test_util PRIVATE -m32)
     target_link_options(test_util PRIVATE -m32)
-    
+
     add_sample_target(memfunc memfunc.cpp)
     target_compile_options(memfunc PRIVATE -m32)
     target_link_options(memfunc PRIVATE -m32)
-    
+
     add_sample_target(static_buf static_buf.cpp)
     target_compile_options(static_buf PRIVATE -m32)
     target_link_options(static_buf PRIVATE -m32)
-    
+
     add_sample_target(jmp_table jmp_table.cpp)
     target_compile_options(jmp_table PRIVATE -m32)
     target_link_options(jmp_table PRIVATE -m32)
-    
+
     if(Boost_FOUND)
         add_sample_target(calc calc.cpp)
         target_compile_options(calc PRIVATE -m32)
