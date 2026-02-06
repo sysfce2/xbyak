@@ -18,6 +18,7 @@
 #endif
 #else
 #include <string.h>
+#include <stdio.h>
 
 /**
 	utility class and functions for Xbyak
@@ -85,6 +86,32 @@
 #ifdef __linux__
 	#define XBYAK_USE_PERF
 #endif
+
+#ifndef XBYAK_CPU_CACHE
+	#define XBYAK_CPU_CACHE 1
+#endif
+#if XBYAK_CPU_CACHE == 1
+#include <vector>
+#ifndef XBYAK_CPUMASK_COMPACT
+	#define XBYAK_CPUMASK_COMPACT 1
+#endif
+#if XBYAK_CPUMASK_COMPACT == 0
+	#include <set>
+#endif
+#ifdef _WIN32
+#include <windows.h>
+#endif
+namespace Xbyak { namespace util {
+class CpuTopology;
+class Cpu;
+namespace impl {
+
+bool initCpuTopology(CpuTopology& cpuTopo);
+
+} // Xbyak::util::impl
+} } // Xbyak::util
+#endif // XBYAK_CPU_CACHE
+
 
 namespace Xbyak { namespace util {
 
@@ -421,7 +448,7 @@ public:
 	static inline void getCpuidEx(uint32_t eaxIn, uint32_t ecxIn, uint32_t data[4])
 	{
 #ifdef XBYAK_INTEL_CPU_SPECIFIC
-	#ifdef _WIN32
+	#ifdef _MSC_VER
 		__cpuidex(reinterpret_cast<int*>(data), eaxIn, ecxIn);
 	#else
 		__cpuid_count(eaxIn, ecxIn, data[0], data[1], data[2], data[3]);
@@ -558,6 +585,7 @@ public:
 	XBYAK_DEFINE_TYPE(94, tAMX_MOVRS);
 	XBYAK_DEFINE_TYPE(95, tAMX_FP8);
 	XBYAK_DEFINE_TYPE(96, tMOVRS);
+	XBYAK_DEFINE_TYPE(97, tHYBRID);
 
 #undef XBYAK_SPLIT_ID
 #undef XBYAK_DEFINE_TYPE
@@ -695,6 +723,7 @@ public:
 			if (ecx & (1U << 28)) type_ |= tMOVDIR64B;
 			if (edx & (1U << 5)) type_ |= tUINTR;
 			if (edx & (1U << 14)) type_ |= tSERIALIZE;
+			if (edx & (1U << 15)) type_ |= tHYBRID;
 			if (edx & (1U << 16)) type_ |= tTSXLDTRK;
 			if (edx & (1U << 22)) type_ |= tAMX_BF16;
 			if (edx & (1U << 24)) type_ |= tAMX_TILE;
@@ -761,6 +790,671 @@ public:
 #endif
 
 #ifndef XBYAK_ONLY_CLASS_CPU
+#if XBYAK_CPU_CACHE == 1
+
+enum CoreType {
+	Unknown,
+	Performance, // P-core (Intel)
+	Efficient, // E-core (Intel)
+	Standard // Non-hybrid
+};
+
+enum CacheType {
+	L1i,
+	L1d,
+	L2,
+	L3,
+	CACHE_UNKNOWN,
+	CACHE_TYPE_NUM = CACHE_UNKNOWN
+};
+
+#if XBYAK_CPUMASK_COMPACT == 1
+/*
+	a_ is treated as an array of N elements, each being bitN bits
+	a_ = 1<<bitN and n_ = 0 and range_ = 0 means empty set
+	n_ is length of a_[] - 1
+	When range_ is false (discrete values):
+		Values satisfy a_[i] + 1 < a_[i+1] for all 0 <= i <= n_
+	When range_ is true (intervals):
+		v = a_[i*2] is the start of the interval
+		n = a_[i*2+1] is the interval length - 1
+		Represents the interval [v, v+n]
+	Max number of cpu = 2**bitN - 1
+	Max value that can be stored = N
+	Max interval length = N/2
+*/
+#ifndef XBYAK_CPUMASK_N
+#define XBYAK_CPUMASK_N 6
+#endif
+#ifndef XBYAK_CPUMASK_BITN
+#define XBYAK_CPUMASK_BITN 10
+#endif
+class CpuMask {
+	static const uint32_t N = XBYAK_CPUMASK_N;
+	static const uint32_t bitN = XBYAK_CPUMASK_BITN;
+	static const uint64_t mask = (uint64_t(1) << bitN) - 1;
+	uint64_t a_:N*bitN;
+	uint64_t n_:3;
+	uint64_t range_:1;
+
+	// Set a_[idx] = v
+	void set_a(size_t idx, uint32_t v)
+	{
+		assert(idx < N);
+		assert(v <= mask);
+		a_ &= ~(mask << (idx*bitN));
+		a_ |= (v & mask) << (idx*bitN);
+	}
+	// Get a_[idx]
+	uint32_t get_a(size_t idx) const
+	{
+		assert(idx < N);
+		return (a_ >> (idx*bitN)) & mask;
+	}
+public:
+	CpuMask() : a_(1<<bitN), n_(0), range_(0) {}
+	class ConstIterator {
+		const CpuMask& parent_;
+		uint32_t idx_;
+		uint32_t size_;
+		friend class CpuMask;
+	public:
+		ConstIterator(const CpuMask& parent)
+			: parent_(parent), idx_(0), size_(uint32_t(parent.size())) {}
+		uint32_t operator*() const { return parent_.get(idx_); }
+		ConstIterator& operator++() { idx_++; return *this; }
+		bool operator==(const ConstIterator& rhs) const { return idx_ == rhs.idx_; }
+		bool operator!=(const ConstIterator& rhs) const { return !operator==(rhs); }
+	};
+	ConstIterator begin() const { return ConstIterator(*this); }
+	ConstIterator end() const {
+		ConstIterator it(*this);
+		it.idx_ = uint32_t(size());
+		return it;
+	}
+	typedef ConstIterator iterator;
+	typedef ConstIterator const_iterator;
+	bool empty() const
+	{
+		return a_ == 1 << bitN && n_ == 0 && range_ == 0;
+	}
+	// Add element v
+	// v should be monotonically increasing
+	bool append(uint32_t v)
+	{
+		if (v > mask) return false;
+		// When adding for the first time, treat as discrete value
+		if (empty()) {
+			a_ = v;
+			n_ = 0;
+			return true;
+		}
+		if (!range_) {
+			const uint32_t prev = get_a(n_);
+			if (v <= prev) return false;
+			// If there's one discrete value and it forms an interval with the new value, switch to interval mode
+			if (n_ == 0 && prev + 1 == v) {
+				set_a(1, 1);
+				range_ = 1;
+				n_ = 1;
+				return true;
+			}
+			if (n_ >= N - 1) return false;
+			// Add discrete value
+			n_++;
+			set_a(n_, v);
+			return true;
+		}
+		// If the value to add is 1 greater than the end of the current interval
+		const uint32_t n = get_a(n_);
+		const uint32_t prev = get_a(n_ - 1) + n;
+		if (prev >= v) return false;
+		if (prev + 1 == v) {
+			// Increase the interval length by one
+			set_a(n_, n + 1);
+			return true;
+		} else {
+			if (n_ >= N - 1) return false;
+			// If not continuous with the previous interval
+			// Add a new interval [v]
+			set_a(n_ + 1, v);
+			n_ += 2;
+			return true;
+		}
+	}
+	size_t size() const
+	{
+		if (empty()) return 0;
+		if (!range_) return n_ + 1;
+		size_t n = 0;
+		for (uint32_t i = 1; i <= n_; i += 2) {
+			n += get_a(i) + 1;
+		}
+		return n;
+	}
+#ifndef NDEBUG
+	// Return true if the idx-th value exists
+	bool hasNext(uint32_t idx) const
+	{
+		if (empty()) return false;
+		if (!range_) return idx <= n_;
+		uint32_t n = 0;
+		for (uint32_t i = 1; i <= n_; i += 2) {
+			n += get_a(i) + 1;
+			if (idx < n) return true;
+		}
+		return false;
+	}
+#endif
+	uint32_t get(uint32_t idx) const
+	{
+		assert(hasNext(idx));
+		if (!range_) return get_a(idx);
+		uint32_t n = 0;
+		for (uint32_t i = 1; i <= n_; i += 2) {
+			uint32_t range = get_a(i) + 1;
+			if (idx < n + range) {
+				return get_a(i - 1) + (idx - n);
+			}
+			n += range;
+		}
+		return false;
+	}
+	void dump() const
+	{
+		printf("a_:");
+		for (int i = int(N) - 1; i >= 0; i--) {
+			printf("%u ", uint32_t((a_ >> (i * bitN)) & mask));
+		}
+		printf("\n");
+		printf("n_: %u\n", (uint32_t)n_);
+		printf("range_: %u\n", (uint32_t)range_);
+	}
+	void put(const char *label = NULL) const
+	{
+		if (label) printf("%s: ", label);
+		if (empty()) {
+			printf("empty\n");
+			return;
+		}
+		if (!range_) {
+			for (uint32_t i = 0; i <= n_; i++) {
+				printf("%u ", get_a(i));
+			}
+			printf("\n");
+			return;
+		}
+		for (uint32_t i = 0; i <= n_; i += 2) {
+			uint32_t v = get_a(i);
+			uint32_t len = get_a(i + 1);
+			if (len == 0) {
+				printf("[%u] ", v);
+			} else {
+				printf("[%u-%u] ", v, v + len);
+			}
+		}
+		printf("\n");
+	}
+};
+#else
+class CpuMask {
+	typedef std::set<uint32_t> IntSet;
+	IntSet indices_;
+public:
+	typedef IntSet::const_iterator const_iterator;
+	typedef const_iterator iterator;
+	CpuMask() : indices_() {}
+	size_t size() const { return indices_.size(); }
+	// idx should be monotonically increasing
+	void append(uint32_t idx)
+	{
+		assert(indices_.empty() || *indices_.rbegin() < idx);
+		indices_.insert(idx);
+	}
+	iterator begin() { return indices_.begin(); }
+	iterator end() { return indices_.end(); }
+	const_iterator begin() const { return indices_.begin(); }
+	const_iterator end() const { return indices_.end(); }
+	void put(const char *label = NULL) const
+	{
+		if (label) printf("%s: ", label);
+		std::string s;
+		s.reserve(size() * 3);
+		for (const_iterator i = begin(), ie = end(); i != ie; ++i) {
+			char buf[16];
+			snprintf(buf, sizeof(buf), "%d ", *i);
+			s += buf;
+		}
+		if (size() > 2 && *indices_.rbegin() - *begin() + 1 == size()) {
+			printf("[%u %u]\n", *begin(), *indices_.rbegin());
+		} else {
+			printf("%s\n", s.c_str());
+		}
+	}
+};
+#endif
+
+class CpuCache {
+public:
+	CpuCache() : size(0), associativity(0) {}
+
+	// Cache size in bytes
+	uint32_t size;
+
+	// number of ways of associativity
+	uint32_t associativity;
+
+	// Set of logical CPU indices sharing this cache
+	CpuMask sharedCpuIndices;
+
+	// Whether this is a shared cache
+	bool isShared() const { return sharedCpuIndices.size() > 1; }
+
+	// Number of logical CPUs sharing this cache
+	size_t getSharedCpuNum() const { return sharedCpuIndices.size(); }
+};
+
+struct LogicalCpu {
+	LogicalCpu()
+		: coreId(0)
+		, coreType(Unknown)
+		, cache()
+	{
+	}
+	uint32_t coreId; // index of physical core
+	CoreType coreType; // for hybrid systems
+	CpuCache cache[CACHE_TYPE_NUM];
+	const CpuMask& getSiblings() const { return cache[L1i].sharedCpuIndices; }
+};
+
+class CpuTopology {
+public:
+	explicit CpuTopology(const Cpu& cpu)
+		: logicalCpus_()
+		, physicalCoreNum_(0)
+		, lineSize_(0)
+		, isHybrid_(cpu.has(cpu.tHYBRID))
+	{
+		if (!impl::initCpuTopology(*this)) {
+			XBYAK_THROW(ERR_CANT_INIT_CPUTOPOLOGY);
+		}
+	}
+
+	// Number of logical CPUs
+	size_t getLogicalCpuNum() const { return logicalCpus_.size(); }
+
+	// Number of physical cores
+	size_t getPhysicalCoreNum() const { return physicalCoreNum_; }
+
+	// Cache line size in bytes
+	uint32_t getLineSize() const { return lineSize_; }
+
+	// Get logical CPU information
+	const LogicalCpu& getLogicalCpu(size_t cpuIdx) const
+	{
+		return logicalCpus_[cpuIdx];
+	}
+
+	// Get cache information for a specific logical CPU
+	const CpuCache& getCache(size_t cpuIdx, CacheType type) const
+	{
+		return logicalCpus_[cpuIdx].cache[type];
+	}
+
+	// Whether this is a hybrid system
+	bool isHybrid() const { return isHybrid_; }
+private:
+	friend bool impl::initCpuTopology(CpuTopology&);
+	std::vector<LogicalCpu> logicalCpus_;
+	size_t physicalCoreNum_;
+	uint32_t lineSize_;
+	bool isHybrid_;
+};
+
+namespace impl {
+
+inline uint32_t popcnt(uint64_t mask)
+{
+#if defined(_M_X64) || defined(_M_AMD64)
+	return (int)__popcnt64(mask);
+#elif defined(__GNUC__) || defined(__clang__)
+	return __builtin_popcountll(mask);
+#else
+	uint32_t count = 0;
+	while (mask) {
+		count += (mask & 1);
+		mask >>= 1;
+	}
+	return count;
+#endif
+}
+
+#ifdef _WIN32
+
+typedef SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX ProcInfo;
+
+// return number of physical cores if successful, 0 if failed
+static inline uint32_t getCores(std::vector<LogicalCpu>& cpus, bool isHybrid) {
+	DWORD len = 0;
+	GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &len);
+	std::vector<char> buf(len);
+	if (!GetLogicalProcessorInformationEx(RelationProcessorCore, reinterpret_cast<ProcInfo*>(buf.data()), &len)) return 0;
+	// get core indices
+	const char *p = buf.data();
+	const char *end = p + len;
+	uint32_t coreIdx = 0;
+	while (p < end) {
+		const auto& entry = *reinterpret_cast<const ProcInfo*>(p);
+		if (entry.Relationship == RelationProcessorCore) {
+			const PROCESSOR_RELATIONSHIP& core = entry.Processor;
+			LogicalCpu cpu;
+			if (!isHybrid) {
+				cpu.coreType = Standard;
+			} else if (core.EfficiencyClass > 0) {
+				cpu.coreType = Performance;
+			} else {
+				cpu.coreType = Efficient;
+			}
+			cpu.coreId = coreIdx++;
+#if 1
+			const GROUP_AFFINITY* masks = core.GroupMask;
+			uint32_t n = 0;
+			for (WORD i = 0; i < core.GroupCount; i++) {
+				n += popcnt(masks[i].Mask);
+			}
+#else
+			uint64_t mask = core.GroupMask[0].Mask;
+			uint32_t n = uint32_t(popcnt(mask));
+#endif
+			for (uint32_t i = 0; i < n; i++) {
+				cpus.push_back(cpu);
+			}
+		}
+		p += entry.Size;
+	}
+	return coreIdx;
+}
+
+inline std::vector<uint32_t> getGroupAcc()
+{
+	uint32_t n = GetActiveProcessorGroupCount();
+	std::vector<uint32_t> v(n, 0);
+	uint32_t acc = 0;
+	for (uint32_t g = 0; g < n; g++) {
+		v[g] = acc;
+		acc += GetActiveProcessorCount(WORD(g));
+	}
+	return v;
+}
+
+inline CpuMask convertMask(const std::vector<uint32_t>& groupAcc, const CACHE_RELATIONSHIP& cache)
+{
+	CpuMask out;
+	const GROUP_AFFINITY* masks = cache.GroupMasks;
+
+	uint32_t acc = 0;
+	for (WORD i = 0; i < cache.GroupCount; i++) {
+		const WORD group = masks[i].Group;
+		const KAFFINITY m = masks[i].Mask;
+
+		const size_t bitWidth = sizeof(KAFFINITY) * 8;
+		for (uint32_t b = 0; b < bitWidth; b++) {
+			if (m & (KAFFINITY(1) << b)) {
+				out.append(acc + b);
+			}
+		}
+		acc += groupAcc[group];
+	}
+	return out;
+}
+
+inline bool initCpuTopology(CpuTopology& cpuTopo)
+{
+	cpuTopo.physicalCoreNum_ = getCores(cpuTopo.logicalCpus_, cpuTopo.isHybrid());
+	if (cpuTopo.physicalCoreNum_ == 0) return false;
+
+	DWORD len = 0;
+	GetLogicalProcessorInformationEx(RelationCache, NULL, &len);
+	std::vector<char> buf(len);
+	if (!GetLogicalProcessorInformationEx(RelationCache, reinterpret_cast<ProcInfo*>(buf.data()), &len)) return false;
+	const char *p = buf.data();
+	const char *end = p + len;
+	const std::vector<uint32_t> groupAcc = getGroupAcc();
+
+	while (p < end) {
+		const auto& entry = *reinterpret_cast<const ProcInfo*>(p);
+		if (entry.Relationship == RelationCache) {
+			const CACHE_RELATIONSHIP& cache = entry.Cache;
+			uint32_t type = CACHE_UNKNOWN;
+			if (cache.Level == 1) {
+				if (cache.Type == CacheInstruction) {
+					type = L1i;
+				} else if (cache.Type == CacheData) {
+					type = L1d;
+				}
+			} else if (cache.Level == 2) {
+				type = L2;
+			} else if (cache.Level == 3) {
+				type = L3;
+			}
+			if (type != CACHE_UNKNOWN) {
+				CpuMask mask = convertMask(groupAcc, cache);
+				for (const auto& i : mask) {
+					assert(i < cpuTopo.logicalCpus_.size());
+					cpuTopo.logicalCpus_[i].cache[type].size = cache.CacheSize;
+					if (cpuTopo.lineSize_ == 0) cpuTopo.lineSize_ = cache.LineSize;
+					cpuTopo.logicalCpus_[i].cache[type].associativity = cache.Associativity;
+					cpuTopo.logicalCpus_[i].cache[type].sharedCpuIndices = mask;
+				}
+			}
+		}
+		p += entry.Size;
+	}
+	return true;
+}
+
+#elif __linux__ // Linux
+
+struct WrapFILE {
+	FILE *f;
+	explicit WrapFILE(const char *name)
+		: f(fopen(name, "r"))
+	{
+	}
+	~WrapFILE() { if (f) fclose(f); }
+};
+
+inline uint32_t readIntFromFile(const char* path) {
+	WrapFILE wf(path);
+	if (!wf.f) return 0;
+	uint32_t val = 0;
+	int n = fscanf(wf.f, "%u", &val);
+	assert(n == 1);
+	(void)n;
+	return val;
+}
+
+inline bool fileExists(const char* path) {
+	WrapFILE wf(path);
+	return wf.f != 0;
+}
+
+inline void parseCpuList(const char* path, CpuMask& mask) {
+	WrapFILE wf(path);
+	if (!wf.f) return;
+	char buf[1024];
+	if (fgets(buf, sizeof(buf), wf.f)) {
+		// Parse ranges like "0-3" or "0,2,4-7"
+		char* p = buf;
+		while (*p) {
+			if (*p == '\n') break;
+			uint32_t start = 0, end = 0;
+			if (sscanf(p, "%u", &start) == 1) {
+				while (*p && *p != '-' && *p != ',' && *p != '\n') p++;
+				if (*p == '-') {
+					p++;
+					if (sscanf(p, "%u", &end) == 1) {
+						for (uint32_t i = start; i <= end; i++) mask.append(i);
+						while (*p && *p != ',' && *p != '\n') p++;
+					}
+				} else {
+					mask.append(start);
+				}
+			}
+			if (*p == ',') p++;
+			else break;
+		}
+	}
+}
+
+inline bool initCpuTopology(CpuTopology& cpuTopo)
+{
+	// Count online CPUs
+	char path[256];
+	uint32_t maxCpu = 0;
+	for (;;) {
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u", maxCpu);
+		if (!fileExists(path)) break;
+		maxCpu++;
+	}
+
+	if (maxCpu == 0) return false;
+
+	// Check if this is a hybrid system
+	bool isHybrid = cpuTopo.isHybrid();
+
+	// Initialize logical CPUs
+	cpuTopo.logicalCpus_.resize(maxCpu);
+
+	uint32_t physicalCoreNum = 0;
+
+	// Read topology for each CPU
+	for (uint32_t cpuIdx = 0; cpuIdx < maxCpu; cpuIdx++) {
+		LogicalCpu& logCpu = cpuTopo.logicalCpus_[cpuIdx];
+
+		// Read core ID
+		snprintf(path, sizeof(path),
+			"/sys/devices/system/cpu/cpu%u/topology/core_id", cpuIdx);
+		logCpu.coreId = readIntFromFile(path);
+		if (logCpu.coreId > physicalCoreNum) physicalCoreNum = logCpu.coreId;
+
+		// Initialize all cores to Standard type
+		logCpu.coreType = Standard;
+
+		// Read cache information
+		for (uint32_t cacheIdx = 0; cacheIdx < CACHE_TYPE_NUM; cacheIdx++) {
+			CacheType cacheType;
+
+			// Map cache index to cache type
+			snprintf(path, sizeof(path),
+				"/sys/devices/system/cpu/cpu%u/cache/index%u/type", cpuIdx, cacheIdx);
+			{
+				WrapFILE wf(path);
+				if (!wf.f) continue;
+
+				char typeStr[32];
+				if (fgets(typeStr, sizeof(typeStr), wf.f)) {
+					if (strncmp(typeStr, "Instruction", 11) == 0) {
+						cacheType = L1i;
+					} else if (strncmp(typeStr, "Data", 4) == 0) {
+						// Determine level
+						char levelPath[256];
+						snprintf(levelPath, sizeof(levelPath),
+							"/sys/devices/system/cpu/cpu%u/cache/index%u/level", cpuIdx, cacheIdx);
+						uint32_t level = readIntFromFile(levelPath);
+						if (level == 1) cacheType = L1d;
+						else if (level == 2) cacheType = L2;
+						else if (level == 3) cacheType = L3;
+						else { continue; }
+					} else if (strncmp(typeStr, "Unified", 7) == 0) {
+						char levelPath[256];
+						snprintf(levelPath, sizeof(levelPath),
+							"/sys/devices/system/cpu/cpu%u/cache/index%u/level", cpuIdx, cacheIdx);
+						uint32_t level = readIntFromFile(levelPath);
+						if (level == 2) cacheType = L2;
+						else if (level == 3) cacheType = L3;
+						else { continue; }
+					} else {
+						continue;
+					}
+				} else {
+					continue;
+				}
+			}
+
+			CpuCache& cache = cpuTopo.logicalCpus_[cpuIdx].cache[cacheType];
+
+			// Read cache size
+			snprintf(path, sizeof(path),
+				"/sys/devices/system/cpu/cpu%u/cache/index%u/size", cpuIdx, cacheIdx);
+			{
+				WrapFILE wf(path);
+				if (wf.f) {
+					char sizeStr[32];
+					if (fgets(sizeStr, sizeof(sizeStr), wf.f)) {
+						uint32_t size = 0;
+						char unit = 'K';
+						sscanf(sizeStr, "%u%c", &size, &unit);
+						if (unit == 'K' || unit == 'k') cache.size = size * 1024;
+						else if (unit == 'M' || unit == 'm') cache.size = size * 1024 * 1024;
+						else cache.size = size;
+					}
+				}
+			}
+
+			// Read ways of associativity
+			snprintf(path, sizeof(path),
+				"/sys/devices/system/cpu/cpu%u/cache/index%u/ways_of_associativity", cpuIdx, cacheIdx);
+			cache.associativity = readIntFromFile(path);
+
+			// Read shared CPU list
+			snprintf(path, sizeof(path),
+				"/sys/devices/system/cpu/cpu%u/cache/index%u/shared_cpu_list", cpuIdx, cacheIdx);
+			parseCpuList(path, cache.sharedCpuIndices);
+		}
+	}
+
+	// Assign core types for hybrid architectures
+	if (isHybrid) {
+		// For hybrid systems, read P-core and E-core lists from sysfs
+		CpuMask pCoreMask;
+		parseCpuList("/sys/devices/cpu_core/cpus", pCoreMask);
+		// Set Performance core types
+		for (CpuMask::const_iterator it = pCoreMask.begin(); it != pCoreMask.end(); ++it) {
+			uint32_t cpuIdx = *it;
+			if (cpuIdx < maxCpu) {
+				cpuTopo.logicalCpus_[cpuIdx].coreType = Performance;
+			}
+		}
+		CpuMask eCoreMask;
+		parseCpuList("/sys/devices/cpu_atom/cpus", eCoreMask);
+		// Set Efficient core types
+		for (CpuMask::const_iterator it = eCoreMask.begin(); it != eCoreMask.end(); ++it) {
+			uint32_t cpuIdx = *it;
+			if (cpuIdx < maxCpu) {
+				cpuTopo.logicalCpus_[cpuIdx].coreType = Efficient;
+			}
+		}
+	}
+
+	// Read coherency line size
+	cpuTopo.lineSize_ = readIntFromFile("/sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size");
+
+	cpuTopo.physicalCoreNum_ = physicalCoreNum + 1;
+	return true;
+}
+#else // Other OS (e.g., macOS)
+inline bool initCpuTopology(CpuTopology& cpuTopo)
+{
+	// CPU topology detection not yet implemented
+	(void)cpuTopo;
+	return false;
+}
+#endif // _WIN32 / __linux__ / other OS
+
+} // namespace impl
+#endif // XBYAK_CPU_CACHE
+
 class Clock {
 public:
 	static inline uint64_t getRdtsc()

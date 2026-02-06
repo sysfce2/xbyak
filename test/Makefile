@@ -26,7 +26,7 @@ endif
 
 ifeq ($(BIT),64)
 	TARGET += jmp64 address64 apx
-	TARGET += sf_test
+	TARGET += sf_test cpumask_test
 endif
 
 all: $(TARGET)
@@ -66,6 +66,8 @@ avx10_test: avx10_test.cpp $(XBYAK_INC)
 	$(CXX) $(CFLAGS) $< -o $@ -DXBYAK64
 sf_test: sf_test.cpp $(XBYAK_INC)
 	$(CXX) $(CFLAGS) $< -o $@ -DXBYAK64
+cpumask_test: cpumask_test.cpp $(XBYAK_INC)
+	$(CXX) $(CFLAGS) $< -o $@
 
 TEST_FILES=old.txt bf16.txt comp.txt misc.txt convert.txt minmax.txt saturation.txt apx.txt amx.txt
 xed_test:
