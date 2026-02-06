@@ -18,7 +18,7 @@
 #endif
 #else
 #include <string.h>
-#include <cstdio>
+#include <stdio.h>
 
 /**
 	utility class and functions for Xbyak
