@@ -15,6 +15,7 @@
 #else
 	#define XBYAK_CONSTEXPR
 #endif
+#define XBYAK_CPUMASK_COMPACT 0
 #endif
 #else
 #include <string.h>
@@ -878,6 +879,13 @@ public:
 	{
 		return a_ == 1 << bitN && n_ == 0 && range_ == 0;
 	}
+	uint64_t to_u64() const { return *reinterpret_cast<const uint64_t*>(this); }
+	bool operator<(const CpuMask& rhs) const { return to_u64() < rhs.to_u64(); }
+	bool operator>(const CpuMask& rhs) const { return to_u64() > rhs.to_u64(); }
+	bool operator>=(const CpuMask& rhs) const { return !operator<(rhs); }
+	bool operator<=(const CpuMask& rhs) const { return !operator>(rhs); }
+	bool operator==(const CpuMask& rhs) const { return to_u64() == rhs.to_u64(); }
+	bool operator!=(const CpuMask& rhs) const { return !operator==(rhs); }
 	// Add element v
 	// v should be monotonically increasing
 	bool append(uint32_t v)
@@ -1883,5 +1891,20 @@ public:
 #endif // XBYAK_ONLY_CLASS_CPU
 
 } } // end of util
+
+#if XBYAK_CPUMASK_COMPACT == 1 && __cplusplus >= 201103
+
+namespace std {
+
+template<>
+struct hash<Xbyak::util::CpuMask> {
+	size_t operator()(const Xbyak::util::CpuMask& m) const noexcept {
+		return std::hash<uint64_t>{}(m.to_u64());
+	}
+};
+
+} // std
+
+#endif
 
 #endif
