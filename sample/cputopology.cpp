@@ -51,16 +51,6 @@ void printSystemTopology(const CpuTopology& cpuTopo)
 	printf("\n");
 }
 
-const char *type2str(int coreType)
-{
-	switch (coreType) {
-	case Performance: return "P-core";
-	case Efficient: return "E-core";
-	case Standard: return "Standard";
-	default: return "Unknown";
-	}
-}
-
 void printLogicalCpuDetails(const CpuTopology& cpuTopo)
 {
 	printSeparator();
@@ -73,7 +63,7 @@ void printLogicalCpuDetails(const CpuTopology& cpuTopo)
 
 	for (size_t i = 0; i < numCpus && i < maxCpusToPrint; i++) {
 		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(i);
-		printf("  CPU %3zu: Core=%u Type=%s Siblings=", i, logCpu.coreId, type2str(logCpu.coreType));
+		printf("  CPU %3zu: Core=%u Type=%s Siblings=", i, logCpu.coreId, getCoreTypeStr(logCpu.coreType));
 		logCpu.getSiblings().put();
 	}
 
@@ -83,76 +73,90 @@ void printLogicalCpuDetails(const CpuTopology& cpuTopo)
 	printf("\n");
 }
 
-void printCacheHierarchy(const CpuTopology& cpuTopo)
+// Print cache size in appropriate unit (MB, KB, or B)
+void printCacheSize(uint32_t size)
+{
+	if (size >= 1024 * 1024) {
+		printf("%.2f MB", size / (1024.0 * 1024.0));
+	} else if (size >= 1024) {
+		printf("%.2f KB", size / 1024.0);
+	} else {
+		printf("%u B", size);
+	}
+}
+
+// Comparator to group CPUs by their cache topology
+struct CacheTopologyComparator {
+	const CpuTopology& cpuTopo;
+
+	CacheTopologyComparator(const CpuTopology& topo) : cpuTopo(topo) {}
+
+	bool operator()(size_t cpu1, size_t cpu2) const {
+		const LogicalCpu& logi1 = cpuTopo.getLogicalCpu(cpu1);
+		const LogicalCpu& logi2 = cpuTopo.getLogicalCpu(cpu2);
+
+		// Sort by core type (E-core before P-core)
+		if (logi1.coreType != logi2.coreType) return logi1.coreType > logi2.coreType;
+
+		// Compare cache properties
+		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
+			const CpuCache& cache1 = cpuTopo.getCache(cpu1, (CacheType)cType);
+			const CpuCache& cache2 = cpuTopo.getCache(cpu2, (CacheType)cType);
+
+			if (cache1.size != cache2.size) return cache1.size < cache2.size;
+			if (cache1.associativity != cache2.associativity) return cache1.associativity < cache2.associativity;
+			size_t num1 = cache1.getSharedCpuNum();
+			size_t num2 = cache2.getSharedCpuNum();
+			if (num1 != num2) return num1 < num2;
+		}
+		return false;
+	}
+};
+
+typedef std::map<size_t, std::vector<size_t>, CacheTopologyComparator> TopologyGroupMap;
+
+// Group CPUs by their cache topology
+TopologyGroupMap groupCpusByTopology(const CpuTopology& cpuTopo)
+{
+	TopologyGroupMap group((CacheTopologyComparator(cpuTopo)));
+
+	for (size_t cpuIdx = 0; cpuIdx < cpuTopo.getLogicalCpuNum(); cpuIdx++) {
+		group[cpuIdx].push_back(cpuIdx);
+	}
+	return group;
+}
+
+void printCacheHierarchy(const CpuTopology& cpuTopo, const TopologyGroupMap& group)
 {
 	printSeparator();
 	printf("CpuCache Class - Cache hierarchy and sharing\n");
 	printSeparator();
 
-	const char* cacheNames[] = {"L1i", "L1d", "L2", "L3"};
-
-	// Create a map to group CPUs by their cache topology
-	// Key: cache topology signature, Value: list of CPUs with that topology
-	std::map<std::string, std::vector<size_t> > topologyGroups;
-
-	// Build cache topology signatures for each CPU
-	for (size_t cpuIdx = 0; cpuIdx < cpuTopo.getLogicalCpuNum(); cpuIdx++) {
-		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(cpuIdx);
-
-		// Create a signature string that uniquely identifies the cache topology
-		char signature[512];
-		int offset = 0;
-		offset += snprintf(signature + offset, sizeof(signature) - offset, "%s:", type2str(logCpu.coreType));
-
-		// Add cache properties to signature
-		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
-			const CpuCache& cache = cpuTopo.getCache(cpuIdx, (CacheType)cType);
-			offset += snprintf(signature + offset, sizeof(signature) - offset,
-				"%d-%u-%u-%zu;",
-				cType, cache.size, cache.associativity,
-				cache.getSharedCpuNum());
-		}
-
-		topologyGroups[signature].push_back(cpuIdx);
-	}
-
 	// Print each unique cache topology group
 	printf("Cache Hierarchy by Topology:\n");
 
-	for (std::map<std::string, std::vector<size_t> >::iterator groupIt = topologyGroups.begin();
-	     groupIt != topologyGroups.end(); ++groupIt) {
+	for (TopologyGroupMap::const_iterator it = group.begin(); it != group.end(); ++it) {
 
-		const std::vector<size_t>& cpuList = groupIt->second;
+		const std::vector<size_t>& cpuList = it->second;
 		if (cpuList.empty()) continue;
 
 		size_t firstCpu = cpuList[0];
 		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(firstCpu);
 
 		// Print core type and CPU list
-		printf("\n%s (CPUs [", type2str(logCpu.coreType));
+		printf("\n%s CPUs ", getCoreTypeStr(logCpu.coreType));
+		CpuMask cpus;
 		for (size_t i = 0; i < cpuList.size(); i++) {
-			if (i > 0) printf(", ");
-			printf("%zu", cpuList[i]);
-			// Limit output to ~20 CPUs for readability
-			if (i >= 19 && cpuList.size() > 20) {
-				printf(", ...");
-				break;
-			}
+			cpus.append(uint32_t(cpuList[i]));
 		}
-		printf("]):\n");
+		cpus.put();
 
 		// Print cache details for this topology
 		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
 			const CpuCache& cache = cpuTopo.getCache(firstCpu, (CacheType)cType);
 			if (cache.size > 0) {
-				printf("  %s: ", cacheNames[cType]);
-				if (cache.size >= 1024 * 1024) {
-					printf("%6.2f MB", cache.size / (1024.0 * 1024.0));
-				} else if (cache.size >= 1024) {
-					printf("%6.2f KB", cache.size / 1024.0);
-				} else {
-					printf("%6u B ", cache.size);
-				}
+				printf("  %s: ", getCacheTypeStr(cType));
+				printCacheSize(cache.size);
 				printf(" | %2u-way", cache.associativity);
 				if (cache.isShared()) {
 					printf(" | Shared by %zu CPUs", cache.getSharedCpuNum());
@@ -164,76 +168,35 @@ void printCacheHierarchy(const CpuTopology& cpuTopo)
 	printf("\n");
 }
 
-void printCacheSharingDetails(const CpuTopology& cpuTopo)
+void printCacheSharingDetails(const CpuTopology& cpuTopo, const TopologyGroupMap& group)
 {
 	printSeparator();
 	printf("Cache Sharing Analysis\n");
 	printSeparator();
 
-	const char* cacheNames[] = {"L1i", "L1d", "L2", "L3"};
-
-	// Create a map to group CPUs by their cache topology (same logic as printCacheHierarchy)
-	std::map<std::string, std::vector<size_t> > topologyGroups;
-
-	// Build cache topology signatures for each CPU
-	for (size_t cpuIdx = 0; cpuIdx < cpuTopo.getLogicalCpuNum(); cpuIdx++) {
-		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(cpuIdx);
-
-		// Create a signature string that uniquely identifies the cache topology
-		char signature[512];
-		int offset = 0;
-		offset += snprintf(signature + offset, sizeof(signature) - offset, "%s:", type2str(logCpu.coreType));
-
-		// Add cache properties to signature
-		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
-			const CpuCache& cache = cpuTopo.getCache(cpuIdx, (CacheType)cType);
-			offset += snprintf(signature + offset, sizeof(signature) - offset,
-				"%d-%u-%u-%zu;",
-				cType, cache.size, cache.associativity, cache.getSharedCpuNum());
-		}
-
-		topologyGroups[signature].push_back(cpuIdx);
-	}
-
 	// Print cache sharing analysis for each unique topology
-	for (std::map<std::string, std::vector<size_t> >::iterator groupIt = topologyGroups.begin();
-	     groupIt != topologyGroups.end(); ++groupIt) {
+	for (TopologyGroupMap::const_iterator it = group.begin(); it != group.end(); ++it) {
 
-		const std::vector<size_t>& cpuList = groupIt->second;
+		const std::vector<size_t>& cpuList = it->second;
 		if (cpuList.empty()) continue;
 
 		size_t firstCpu = cpuList[0];
 		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(firstCpu);
 
-		printf("%s Topology (representative CPU %zu):\n", type2str(logCpu.coreType), firstCpu);
+		printf("%s Topology (representative CPU %zu):\n", getCoreTypeStr(logCpu.coreType), firstCpu);
 
 		// Analyze each cache level
 		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
 			const CpuCache& cache = cpuTopo.getCache(firstCpu, (CacheType)cType);
 			if (cache.size > 0) {
-				printf("  %s Cache:\n", cacheNames[cType]);
+				printf("  %s Cache:\n", getCacheTypeStr(cType));
 				printf("    Size: ");
-				if (cache.size >= 1024 * 1024) {
-					printf("%.2f MB\n", cache.size / (1024.0 * 1024.0));
-				} else if (cache.size >= 1024) {
-					printf("%.2f KB\n", cache.size / 1024.0);
-				} else {
-					printf("%u B\n", cache.size);
-				}
+				printCacheSize(cache.size);
+				printf("\n");
 
 				if (cache.isShared()) {
 					printf("    Shared by %zu CPUs: ", cache.getSharedCpuNum());
-					int count = 0;
-					for (CpuMask::const_iterator i = cache.sharedCpuIndices.begin(), ie = cache.sharedCpuIndices.end(); i != ie; ++i) {
-						if (count > 0) printf(",");
-						printf("%u", *i);
-						count++;
-						if (count > 20) {
-							printf("...");
-							break;
-						}
-					}
-					printf("\n");
+					cache.sharedCpuIndices.put();
 				} else {
 					printf("    Private (not shared)\n");
 				}
@@ -279,11 +242,13 @@ int main()
 	Cpu cpu;
 	CpuTopology cpuTopo(cpu);
 
+	const TopologyGroupMap group = groupCpusByTopology(cpuTopo);
+
 	printCpuMaskTest();
 	printSystemTopology(cpuTopo);
 	printLogicalCpuDetails(cpuTopo);
-	printCacheHierarchy(cpuTopo);
-	printCacheSharingDetails(cpuTopo);
+	printCacheHierarchy(cpuTopo, group);
+	printCacheSharingDetails(cpuTopo, group);
 
 	printSeparator();
 	printf("All tests completed successfully!\n");
