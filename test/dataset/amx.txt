@@ -34,36 +34,36 @@ tdphf8ps(tmm1, tmm2, tmm3);
 
 tmmultf32ps(tmm1, tmm2, tmm3);
 
-t2rpntlvwz0(tmm1, ptr[rax+r8*2+0x80]);
-t2rpntlvwz0(tmm7, ptr[r30+r8*2+0x80]);
+//t2rpntlvwz0(tmm1, ptr[rax+r8*2+0x80]);
+//t2rpntlvwz0(tmm7, ptr[r30+r8*2+0x80]);
 
-t2rpntlvwz0t1(tmm1, ptr[rax+r8*2+0x80]);
-t2rpntlvwz0t1(tmm7, ptr[r30+r8*2+0x80]);
+//t2rpntlvwz0t1(tmm1, ptr[rax+r8*2+0x80]);
+//t2rpntlvwz0t1(tmm7, ptr[r30+r8*2+0x80]);
 
-t2rpntlvwz1(tmm1, ptr[rax+r8*2+0x80]);
-t2rpntlvwz1(tmm7, ptr[r30+r8*2+0x80]);
+//t2rpntlvwz1(tmm1, ptr[rax+r8*2+0x80]);
+//t2rpntlvwz1(tmm7, ptr[r30+r8*2+0x80]);
 
-t2rpntlvwz1t1(tmm1, ptr[rax+r8*2+0x80]);
-t2rpntlvwz1t1(tmm7, ptr[r30+r8*2+0x80]);
+//t2rpntlvwz1t1(tmm1, ptr[rax+r8*2+0x80]);
+//t2rpntlvwz1t1(tmm7, ptr[r30+r8*2+0x80]);
 
-t2rpntlvwz0rs(tmm1, ptr[rax+r8*2+0x80]);
-t2rpntlvwz0rs(tmm7, ptr[r30+r8*2+0x80]);
+//t2rpntlvwz0rs(tmm1, ptr[rax+r8*2+0x80]);
+//t2rpntlvwz0rs(tmm7, ptr[r30+r8*2+0x80]);
 
-t2rpntlvwz0rst1(tmm1, ptr[rax+r8*2+0x80]);
-t2rpntlvwz0rst1(tmm7, ptr[r30+r8*2+0x80]);
+//t2rpntlvwz0rst1(tmm1, ptr[rax+r8*2+0x80]);
+//t2rpntlvwz0rst1(tmm7, ptr[r30+r8*2+0x80]);
 
-t2rpntlvwz1rs(tmm1, ptr[rax+r8*2+0x80]);
-t2rpntlvwz1rs(tmm7, ptr[r30+r8*2+0x80]);
+//t2rpntlvwz1rs(tmm1, ptr[rax+r8*2+0x80]);
+//t2rpntlvwz1rs(tmm7, ptr[r30+r8*2+0x80]);
 
-t2rpntlvwz1rst1(tmm1, ptr[rax+r8*2+0x80]);
-t2rpntlvwz1rst1(tmm7, ptr[r30+r8*2+0x80]);
+//t2rpntlvwz1rst1(tmm1, ptr[rax+r8*2+0x80]);
+//t2rpntlvwz1rst1(tmm7, ptr[r30+r8*2+0x80]);
 
 tcmmimfp16ps(tmm1, tmm2, tmm3);
 tcmmrlfp16ps(tmm1, tmm2, tmm3);
 
-tconjtcmmimfp16ps(tmm1, tmm2, tmm3);
+//tconjtcmmimfp16ps(tmm1, tmm2, tmm3);
 
-tconjtfp16(tmm1, tmm2);
+//tconjtfp16(tmm1, tmm2);
 
 tcvtrowps2bf16h(zmm1, tmm2, r30d);
 tcvtrowps2bf16h(zmm29, tmm2, 0x12);
@@ -80,15 +80,15 @@ tcvtrowps2phl(zmm29, tmm2, 0x12);
 tilemovrow(zmm1, tmm2, r30d);
 tilemovrow(zmm29, tmm2, 0x12);
 
-ttcmmimfp16ps(tmm1, tmm2, tmm3);
-ttcmmrlfp16ps(tmm1, tmm2, tmm3);
+//ttcmmimfp16ps(tmm1, tmm2, tmm3);
+//ttcmmrlfp16ps(tmm1, tmm2, tmm3);
 
-ttdpbf16ps(tmm1, tmm2, tmm3);
-ttdpfp16ps(tmm1, tmm2, tmm3);
+//ttdpbf16ps(tmm1, tmm2, tmm3);
+//ttdpfp16ps(tmm1, tmm2, tmm3);
 
-ttmmultf32ps(tmm1, tmm2, tmm3);
+//ttmmultf32ps(tmm1, tmm2, tmm3);
 
-ttransposed(tmm1, tmm2);
+//ttransposed(tmm1, tmm2);
 
 tcvtrowd2ps(zmm20, tmm1, r30d);
 tcvtrowd2ps(zmm20, tmm1, 0x12);
