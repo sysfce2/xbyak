@@ -2051,8 +2051,8 @@ void putAMX_MISC()
 	puts("void tilerelease() { db(0xc4); db(0xe2); db(0x78); db(0x49); db(0xc0); }");
 	puts("void tilezero(const Tmm& t) { opVex(t, &tmm0, tmm0, T_F2|T_0F38|T_W0, 0x49); }");
 
-	puts("void tconjtfp16(const Tmm& t1, const Tmm& t2) { opVex(t1, 0, t2, T_66|T_0F38|T_W0, 0x6B); }");
-	puts("void ttransposed(const Tmm& t1, const Tmm& t2) { opVex(t1, 0, t2, T_F3|T_0F38|T_W0, 0x5F); }");
+//	puts("void tconjtfp16(const Tmm& t1, const Tmm& t2) { opVex(t1, 0, t2, T_66|T_0F38|T_W0, 0x6B); }");
+//	puts("void ttransposed(const Tmm& t1, const Tmm& t2) { opVex(t1, 0, t2, T_F3|T_0F38|T_W0, 0x5F); }");
 }
 
 void putAMX_TM()
@@ -2066,14 +2066,14 @@ void putAMX_TM()
 		{ "tileloaddt1", T_66 | T_0F38 | T_W0, 0x4B },
 		{ "tileloaddrs", T_F2 | T_0F38 | T_W0, 0x4A },
 		{ "tileloaddrst1", T_66 | T_0F38 | T_W0, 0x4A },
-		{ "t2rpntlvwz0", T_0F38 | T_W0, 0x6E },
-		{ "t2rpntlvwz0t1", T_0F38 | T_W0, 0x6F },
-		{ "t2rpntlvwz1", T_66 | T_0F38 | T_W0, 0x6E },
-		{ "t2rpntlvwz1t1", T_66 | T_0F38 | T_W0, 0x6F },
-		{ "t2rpntlvwz0rs", T_MAP5 | T_W0, 0xF8 },
-		{ "t2rpntlvwz0rst1", T_MAP5 | T_W0, 0xF9 },
-		{ "t2rpntlvwz1rs", T_66 | T_MAP5 | T_W0, 0xF8 },
-		{ "t2rpntlvwz1rst1", T_66 | T_MAP5 | T_W0, 0xF9 },
+//		{ "t2rpntlvwz0", T_0F38 | T_W0, 0x6E },
+//		{ "t2rpntlvwz0t1", T_0F38 | T_W0, 0x6F },
+//		{ "t2rpntlvwz1", T_66 | T_0F38 | T_W0, 0x6E },
+//		{ "t2rpntlvwz1t1", T_66 | T_0F38 | T_W0, 0x6F },
+//		{ "t2rpntlvwz0rs", T_MAP5 | T_W0, 0xF8 },
+//		{ "t2rpntlvwz0rst1", T_MAP5 | T_W0, 0xF9 },
+//		{ "t2rpntlvwz1rs", T_66 | T_MAP5 | T_W0, 0xF8 },
+//		{ "t2rpntlvwz1rst1", T_66 | T_MAP5 | T_W0, 0xF9 },
 	};
 	for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
 		const Tbl& t = tbl[i];
@@ -2102,12 +2102,12 @@ void putAMX_TTT()
 		{ "tmmultf32ps", T_66 | T_0F38 | T_W0, 0x48 },
 		{ "tcmmimfp16ps", T_66 | T_0F38 | T_W0, 0x6C },
 		{ "tcmmrlfp16ps", T_0F38 | T_W0, 0x6C },
-		{ "tconjtcmmimfp16ps", T_0F38 | T_W0, 0x6B },
-		{ "ttcmmimfp16ps", T_F2 | T_0F38 | T_W0, 0x6B },
-		{ "ttcmmrlfp16ps", T_F3 | T_0F38 | T_W0, 0x6B },
-		{ "ttdpbf16ps", T_F3 | T_0F38 | T_W0, 0x6C },
-		{ "ttdpfp16ps", T_F2 | T_0F38 | T_W0, 0x6C },
-		{ "ttmmultf32ps", T_0F38 | T_W0, 0x48 },
+//		{ "tconjtcmmimfp16ps", T_0F38 | T_W0, 0x6B },
+//		{ "ttcmmimfp16ps", T_F2 | T_0F38 | T_W0, 0x6B },
+//		{ "ttcmmrlfp16ps", T_F3 | T_0F38 | T_W0, 0x6B },
+//		{ "ttdpbf16ps", T_F3 | T_0F38 | T_W0, 0x6C },
+//		{ "ttdpfp16ps", T_F2 | T_0F38 | T_W0, 0x6C },
+//		{ "ttmmultf32ps", T_0F38 | T_W0, 0x48 },
 	};
 	for (size_t i = 0; i < NUM_OF_ARRAY(tbl); i++) {
 		const Tbl& t = tbl[i];
