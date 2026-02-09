@@ -243,6 +243,31 @@ void printCacheSharingDetails(const CpuTopology& cpuTopo)
 	}
 }
 
+void printSmallSample(const CpuTopology& cpuTopo)
+{
+	printf("logical CPU num %zu %s\n", cpuTopo.getLogicalCpuNum(), cpuTopo.isHybrid() ? "hybrid" : "");
+	if (!cpuTopo.isHybrid()) {
+		cpuTopo.getLogicalCpu(0).put();
+		return;
+	}
+	bool foundEcore = false;
+	bool foundPcore = false;
+	for (size_t i = 0; i < cpuTopo.getLogicalCpuNum(); i++) {
+		const LogicalCpu& logi = cpuTopo.getLogicalCpu(i);
+		if (!foundEcore && logi.coreType == Efficient) {
+			logi.put();
+			foundEcore = true;
+			continue;
+		}
+		if (!foundPcore && logi.coreType == Performance) {
+			logi.put();
+			foundPcore = true;
+			continue;
+		}
+		if (foundEcore && foundPcore) return;
+	}
+}
+
 int main()
 	try
 {
@@ -264,6 +289,8 @@ int main()
 	printf("All tests completed successfully!\n");
 	printSeparator();
 	printf("\n");
+	printSeparator();
+	printSmallSample(cpuTopo);
 } catch (std::exception& e) {
 	printf("Error: %s\n", e.what());
 	return 1;

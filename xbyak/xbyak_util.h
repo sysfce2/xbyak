@@ -1052,6 +1052,13 @@ public:
 
 	// Number of logical CPUs sharing this cache
 	size_t getSharedCpuNum() const { return sharedCpuIndices.size(); }
+
+	void put(const char *label = NULL) const
+	{
+		if (label) printf("%s: ", label);
+		printf("%u KiB, assoc. %u, shared ", size / 1024, associativity);
+		sharedCpuIndices.put();
+	}
 };
 
 struct LogicalCpu {
@@ -1065,6 +1072,19 @@ struct LogicalCpu {
 	CoreType coreType; // for hybrid systems
 	CpuCache cache[CACHE_TYPE_NUM];
 	const CpuMask& getSiblings() const { return cache[L1i].sharedCpuIndices; }
+
+	void put(const char *label = NULL) const
+	{
+		if (label) printf("%s: ", label);
+		static const char typeTbl[][8] = {
+			"Unknown", "P-core", "E-core", "Std"
+		};
+		printf("coreId %u, type %s\n", coreId, typeTbl[coreType]);
+		cache[L1i].put("L1i");
+		cache[L1d].put("L1d");
+		cache[L2].put("L2");
+		cache[L3].put("L3");
+	}
 };
 
 class CpuTopology {
