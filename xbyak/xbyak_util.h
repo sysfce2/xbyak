@@ -800,6 +800,16 @@ enum CoreType {
 	Standard // Non-hybrid
 };
 
+inline const char *getCoreTypeStr(int coreType)
+{
+	switch (coreType) {
+	case Performance: return "P-core";
+	case Efficient: return "E-core";
+	case Standard: return "Standard";
+	default: return "Unknown";
+	}
+}
+
 enum CacheType {
 	L1i,
 	L1d,
@@ -808,6 +818,17 @@ enum CacheType {
 	CACHE_UNKNOWN,
 	CACHE_TYPE_NUM = CACHE_UNKNOWN
 };
+
+inline const char* getCacheTypeStr(int type)
+{
+	switch (type) {
+	case L1i: return "L1i";
+	case L1d: return "L1d";
+	case L2: return "L2";
+	case L3: return "L3";
+	default: return "Unknown";
+	}
+}
 
 #if XBYAK_CPUMASK_COMPACT == 1
 /*
@@ -986,20 +1007,24 @@ public:
 			return;
 		}
 		if (!range_) {
+			bool first = true;
 			for (uint32_t i = 0; i <= n_; i++) {
-				printf("%u ", get_a(i));
+				printf("%s%u", first ? "" : " ", get_a(i));
+				first = false;
 			}
 			printf("\n");
 			return;
 		}
+		bool first = true;
 		for (uint32_t i = 0; i <= n_; i += 2) {
 			uint32_t v = get_a(i);
 			uint32_t len = get_a(i + 1);
 			if (len == 0) {
-				printf("[%u] ", v);
+				printf("%s[%u]", first ? "" : " ", v);
 			} else {
-				printf("[%u-%u] ", v, v + len);
+				printf("%s[%u-%u]", first ? "" : " ", v, v + len);
 			}
+			first = false;
 		}
 		printf("\n");
 	}
@@ -1084,14 +1109,10 @@ struct LogicalCpu {
 	void put(const char *label = NULL) const
 	{
 		if (label) printf("%s: ", label);
-		static const char typeTbl[][8] = {
-			"Unknown", "P-core", "E-core", "Std"
-		};
-		printf("coreId %u, type %s\n", coreId, typeTbl[coreType]);
-		cache[L1i].put("L1i");
-		cache[L1d].put("L1d");
-		cache[L2].put("L2");
-		cache[L3].put("L3");
+		printf("coreId %u, type %s\n", coreId, getCoreTypeStr(coreType));
+		for (int i = 0; i < CACHE_TYPE_NUM; i++) {
+			cache[i].put(getCacheTypeStr(i));
+		}
 	}
 };
 
