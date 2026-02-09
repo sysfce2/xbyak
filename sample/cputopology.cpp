@@ -113,15 +113,15 @@ struct CacheTopologyComparator {
 	}
 };
 
-typedef std::map<size_t, std::vector<size_t>, CacheTopologyComparator> TopologyGroupMap;
+typedef std::map<size_t, CpuMask, CacheTopologyComparator> TopologyGroupMap;
 
 // Group CPUs by their cache topology
 TopologyGroupMap groupCpusByTopology(const CpuTopology& cpuTopo)
 {
 	TopologyGroupMap group((CacheTopologyComparator(cpuTopo)));
 
-	for (size_t cpuIdx = 0; cpuIdx < cpuTopo.getLogicalCpuNum(); cpuIdx++) {
-		group[cpuIdx].push_back(cpuIdx);
+	for (uint32_t cpuIdx = 0; cpuIdx < cpuTopo.getLogicalCpuNum(); cpuIdx++) {
+		group[cpuIdx].append(cpuIdx);
 	}
 	return group;
 }
@@ -137,23 +137,19 @@ void printCacheHierarchy(const CpuTopology& cpuTopo, const TopologyGroupMap& gro
 
 	for (TopologyGroupMap::const_iterator it = group.begin(); it != group.end(); ++it) {
 
-		const std::vector<size_t>& cpuList = it->second;
-		if (cpuList.empty()) continue;
+		const CpuMask& cpus = it->second;
+		if (cpus.empty()) continue;
 
-		size_t firstCpu = cpuList[0];
+		size_t firstCpu = cpus.get(0);
 		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(firstCpu);
 
 		// Print core type and CPU list
 		printf("\n%s CPUs ", getCoreTypeStr(logCpu.coreType));
-		CpuMask cpus;
-		for (size_t i = 0; i < cpuList.size(); i++) {
-			cpus.append(uint32_t(cpuList[i]));
-		}
 		cpus.put();
 
 		// Print cache details for this topology
-		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
-			const CpuCache& cache = cpuTopo.getCache(firstCpu, (CacheType)cType);
+		for (int cType = 0; cType < CACHE_TYPE_NUM; cType++) {
+			const CpuCache& cache = logCpu.cache[cType];
 			if (cache.size > 0) {
 				printf("  %s: ", getCacheTypeStr(cType));
 				printCacheSize(cache.size);
@@ -177,17 +173,17 @@ void printCacheSharingDetails(const CpuTopology& cpuTopo, const TopologyGroupMap
 	// Print cache sharing analysis for each unique topology
 	for (TopologyGroupMap::const_iterator it = group.begin(); it != group.end(); ++it) {
 
-		const std::vector<size_t>& cpuList = it->second;
-		if (cpuList.empty()) continue;
+		const CpuMask& cpus = it->second;
+		if (cpus.empty()) continue;
 
-		size_t firstCpu = cpuList[0];
+		size_t firstCpu = cpus.get(0);
 		const LogicalCpu& logCpu = cpuTopo.getLogicalCpu(firstCpu);
 
 		printf("%s Topology (representative CPU %zu):\n", getCoreTypeStr(logCpu.coreType), firstCpu);
 
 		// Analyze each cache level
-		for (int cType = L1i; cType < CACHE_TYPE_NUM; cType++) {
-			const CpuCache& cache = cpuTopo.getCache(firstCpu, (CacheType)cType);
+		for (int cType = 0; cType < CACHE_TYPE_NUM; cType++) {
+			const CpuCache& cache = logCpu.cache[cType];
 			if (cache.size > 0) {
 				printf("  %s Cache:\n", getCacheTypeStr(cType));
 				printf("    Size: ");
