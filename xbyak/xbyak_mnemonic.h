@@ -1874,7 +1874,7 @@ void clui() { db(0xF3); db(0x0F); db(0x01); db(0xEE); }
 void stui() { db(0xF3); db(0x0F); db(0x01); db(0xEF); }
 void testui() { db(0xF3); db(0x0F); db(0x01); db(0xED); }
 void uiret() { db(0xF3); db(0x0F); db(0x01); db(0xEC); }
-void cmpxchg16b(const Address& addr) { opMR(addr, Reg64(1), T_0F, 0xC7); }
+void cmpxchg16b(const Address& addr) { opMR(addr, Reg64(1), T_0F|T_ALLOW_DIFF_SIZE, 0xC7); }
 void fxrstor64(const Address& addr) { opMR(addr, Reg64(1), T_0F, 0xAE); }
 void movq(const Reg64& reg, const Mmx& mmx) { if (mmx.isXMM()) db(0x66); opSSE(mmx, reg, T_0F, 0x7E); }
 void movq(const Mmx& mmx, const Reg64& reg) { if (mmx.isXMM()) db(0x66); opSSE(mmx, reg, T_0F, 0x6E); }
