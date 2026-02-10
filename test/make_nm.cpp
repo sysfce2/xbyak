@@ -1315,6 +1315,7 @@ class Test {
 #ifdef XBYAK64
 		put("xchg", RAX, RAX);
 		put("cmpxchg16b", MEM);
+		put("cmpxchg16b", "xword [rax]", "oword [rax]");
 		put("fxrstor64", MEM);
 		put("xbegin", "0x12345678");
 		put("rdfsbase", REG32|REG64);
