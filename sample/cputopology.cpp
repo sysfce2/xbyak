@@ -16,27 +16,6 @@ void printSeparator()
 	printf("========================================\n");
 }
 
-void printCpuMaskTest()
-{
-	printSeparator();
-	printf("CpuMask Class - CPU affinity mask operations\n");
-	printSeparator();
-
-	CpuMask mask;
-	mask.append(0);
-	mask.append(2);
-	mask.append(5);
-	mask.append(7);
-
-	printf("Created CpuMask with CPUs: 0, 2, 5, 7\n");
-	printf("Iterating through set CPUs:\n");
-	for (CpuMask::iterator it = mask.begin(); it != mask.end(); ++it) {
-		printf("  CPU %u is set\n", *it);
-	}
-	printf("Total CPUs in mask: %zu\n", mask.size());
-	printf("\n");
-}
-
 void printSystemTopology(const CpuTopology& cpuTopo)
 {
 	printSeparator();
@@ -240,7 +219,6 @@ int main()
 
 	const TopologyGroupMap group = groupCpusByTopology(cpuTopo);
 
-	printCpuMaskTest();
 	printSystemTopology(cpuTopo);
 	printLogicalCpuDetails(cpuTopo);
 	printCacheHierarchy(cpuTopo, group);
