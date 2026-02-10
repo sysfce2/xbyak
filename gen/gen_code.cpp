@@ -1949,7 +1949,7 @@ void put64()
 		putGeneric(tbl, NUM_OF_ARRAY(tbl));
 	}
 
-	putMemOp("cmpxchg16b", "T_0F", 1, 0xC7, 64);
+	putMemOp("cmpxchg16b", "T_0F|T_ALLOW_DIFF_SIZE", 1, 0xC7, 64);
 	putMemOp("fxrstor64", "T_0F", 1, 0xAE, 64);
 	puts("void movq(const Reg64& reg, const Mmx& mmx) { if (mmx.isXMM()) db(0x66); opSSE(mmx, reg, T_0F, 0x7E); }");
 	puts("void movq(const Mmx& mmx, const Reg64& reg) { if (mmx.isXMM()) db(0x66); opSSE(mmx, reg, T_0F, 0x6E); }");
