@@ -832,7 +832,7 @@ inline const char* getCacheTypeStr(int type)
 
 namespace impl {
 
-void appendStr(std::string& s, uint32_t v)
+inline void appendStr(std::string& s, uint32_t v)
 {
 #if __cplusplus >= 201103L
 	s += std::to_string(v);
