@@ -1,5 +1,6 @@
 # History
 
+* 2026/Feb/10 ver 7.33 change the string format of CpuMask
 * 2026/Feb/09 ver 7.32 remove some instructions referenced in Intel 319433-059
 * 2026/Feb/06 ver 7.31 add util::CpuTopology to handle cache information in heterogeneous environments
 * 2025/Sep/02 ver 7.30 add tcvtrowd2ps
