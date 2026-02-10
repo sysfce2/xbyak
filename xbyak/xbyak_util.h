@@ -830,6 +830,59 @@ inline const char* getCacheTypeStr(int type)
 	}
 }
 
+namespace impl {
+
+void appendStr(std::string& s, uint32_t v)
+{
+#if __cplusplus >= 201103L
+	s += std::to_string(v);
+#else
+	char buf[16];
+	snprintf(buf, sizeof(buf), "%u", v);
+	s += buf;
+#endif
+}
+
+// str = "(int|range)[,(int|range)]*"
+// range = int-int
+// e.g. "0-3,5,7,10-12"
+template<class T>
+bool setStr(T& x, const char *str)
+{
+	const char *p = str;
+	while (*p) {
+		if (p != str && *p == ',') p++;
+		char *endp;
+		uint32_t v = uint32_t(strtoul(p, &endp, 10));
+		if (endp == p) return false;
+		if (!x.append(v)) return false;
+		switch (*endp) {
+		case '-': {
+			uint32_t next = uint32_t(strtoul(endp + 1, &endp, 10));
+			if (next <= v) return false;
+			while (v < next) {
+				if (!x.append(++v)) return false;
+			}
+			p = endp;
+			if (*p == '\0') return true;
+			break;
+		}
+		case ',': { p = endp; break; }
+		case '\0': return true;
+		default: return false;
+		}
+	}
+	return true;
+}
+
+} // impl
+
+#ifndef XBYAK_CPUMASK_N
+#define XBYAK_CPUMASK_N 6
+#endif
+#ifndef XBYAK_CPUMASK_BITN
+#define XBYAK_CPUMASK_BITN 10
+#endif
 #if XBYAK_CPUMASK_COMPACT == 1
 /*
 	a_ is treated as an array of N elements, each being bitN bits
@@ -845,12 +898,6 @@ inline const char* getCacheTypeStr(int type)
 	Max value that can be stored = N
 	Max interval length = N/2
 */
-#ifndef XBYAK_CPUMASK_N
-#define XBYAK_CPUMASK_N 6
-#endif
-#ifndef XBYAK_CPUMASK_BITN
-#define XBYAK_CPUMASK_BITN 10
-#endif
 class CpuMask {
 	static const uint32_t N = XBYAK_CPUMASK_N;
 	static const uint32_t bitN = XBYAK_CPUMASK_BITN;
@@ -873,8 +920,22 @@ class CpuMask {
 		assert(idx < N);
 		return (a_ >> (idx*bitN)) & mask;
 	}
+#ifndef NDEBUG
+	// Return true if the idx-th value exists
+	bool hasNext(uint32_t idx) const
+	{
+		if (empty()) return false;
+		if (!range_) return idx <= n_;
+		uint32_t n = 0;
+		for (uint32_t i = 1; i <= n_; i += 2) {
+			n += get_a(i) + 1;
+			if (idx < n) return true;
+		}
+		return false;
+	}
+#endif
 public:
-	CpuMask() : a_(1<<bitN), n_(0), range_(0) {}
+	CpuMask() { clear(); }
 	class ConstIterator {
 		const CpuMask& parent_;
 		uint32_t idx_;
@@ -896,11 +957,12 @@ public:
 	}
 	typedef ConstIterator iterator;
 	typedef ConstIterator const_iterator;
+	void clear() { a_ = 1 << bitN; n_ = 0; range_ = 0; }
 	bool empty() const
 	{
 		return a_ == 1 << bitN && n_ == 0 && range_ == 0;
 	}
-	uint64_t to_u64() const { return *reinterpret_cast<const uint64_t*>(this); }
+	uint64_t to_u64() const { return a_ | (uint64_t(n_) << (N * bitN)) | (uint64_t(range_) << (N * bitN + 3)); }
 	bool operator<(const CpuMask& rhs) const { return to_u64() < rhs.to_u64(); }
 	bool operator>(const CpuMask& rhs) const { return to_u64() > rhs.to_u64(); }
 	bool operator>=(const CpuMask& rhs) const { return !operator<(rhs); }
@@ -951,6 +1013,36 @@ public:
 			return true;
 		}
 	}
+	// str = "(int|range)[,(int|range)]*"
+	// range = int-int
+	bool setStr(const char *str)
+	{
+		return impl::setStr(*this, str);
+	}
+	bool setStr(const std::string& str) { return setStr(str.c_str()); }
+	std::string getStr() const
+	{
+		std::string s;
+		if (empty()) return s;
+		if (!range_) {
+			for (uint32_t i = 0; i <= n_; i++) {
+				if (!s.empty()) s += ",";
+				impl::appendStr(s, get_a(i));
+			}
+			return s;
+		}
+		for (uint32_t i = 0; i <= n_; i += 2) {
+			uint32_t v = get_a(i);
+			uint32_t len = get_a(i + 1);
+			if (!s.empty()) s += ",";
+			impl::appendStr(s, v);
+			if (len > 0) {
+				s += "-";
+				impl::appendStr(s, v + len);
+			}
+		}
+		return s;
+	}
 	size_t size() const
 	{
 		if (empty()) return 0;
@@ -961,20 +1053,7 @@ public:
 		}
 		return n;
 	}
-#ifndef NDEBUG
-	// Return true if the idx-th value exists
-	bool hasNext(uint32_t idx) const
-	{
-		if (empty()) return false;
-		if (!range_) return idx <= n_;
-		uint32_t n = 0;
-		for (uint32_t i = 1; i <= n_; i += 2) {
-			n += get_a(i) + 1;
-			if (idx < n) return true;
-		}
-		return false;
-	}
-#endif
+
 	uint32_t get(uint32_t idx) const
 	{
 		assert(hasNext(idx));
@@ -1002,31 +1081,7 @@ public:
 	void put(const char *label = NULL) const
 	{
 		if (label) printf("%s: ", label);
-		if (empty()) {
-			printf("empty\n");
-			return;
-		}
-		if (!range_) {
-			bool first = true;
-			for (uint32_t i = 0; i <= n_; i++) {
-				printf("%s%u", first ? "" : " ", get_a(i));
-				first = false;
-			}
-			printf("\n");
-			return;
-		}
-		bool first = true;
-		for (uint32_t i = 0; i <= n_; i += 2) {
-			uint32_t v = get_a(i);
-			uint32_t len = get_a(i + 1);
-			if (len == 0) {
-				printf("%s[%u]", first ? "" : " ", v);
-			} else {
-				printf("%s[%u-%u]", first ? "" : " ", v, v + len);
-			}
-			first = false;
-		}
-		printf("\n");
+		printf("%s\n", getStr().c_str());
 	}
 };
 #else
@@ -1034,35 +1089,76 @@ class CpuMask {
 	typedef std::set<uint32_t> IntSet;
 	IntSet indices_;
 public:
+	CpuMask() : indices_() {}
 	typedef IntSet::const_iterator const_iterator;
 	typedef const_iterator iterator;
-	CpuMask() : indices_() {}
-	size_t size() const { return indices_.size(); }
-	// idx should be monotonically increasing
-	void append(uint32_t idx)
-	{
-		assert(indices_.empty() || *indices_.rbegin() < idx);
-		indices_.insert(idx);
-	}
-	iterator begin() { return indices_.begin(); }
-	iterator end() { return indices_.end(); }
 	const_iterator begin() const { return indices_.begin(); }
 	const_iterator end() const { return indices_.end(); }
+
+	void clear() { indices_.clear(); }
+	bool empty() const { return indices_.empty(); }
+	bool operator<(const CpuMask& rhs) const { return indices_ < rhs.indices_; }
+	bool operator>(const CpuMask& rhs) const { return indices_ > rhs.indices_; }
+	bool operator>=(const CpuMask& rhs) const { return !operator<(rhs); }
+	bool operator<=(const CpuMask& rhs) const { return !operator>(rhs); }
+	bool operator==(const CpuMask& rhs) const { return indices_ == rhs.indices_; }
+	bool operator!=(const CpuMask& rhs) const { return !operator==(rhs); }
+	// idx should be monotonically increasing
+	bool append(uint32_t idx)
+	{
+		if (idx >= (1u << XBYAK_CPUMASK_BITN)) return false;
+		if (!indices_.empty() && *indices_.rbegin() >= idx) return false;
+		indices_.insert(idx);
+		return true;
+	}
+	bool setStr(const char *str)
+	{
+		return impl::setStr(*this, str);
+	}
+	bool setStr(const std::string& str) { return setStr(str.c_str()); }
+	std::string getStr() const
+	{
+		std::string s;
+		bool inRange = false;
+		uint32_t prev = 0x80000000;
+		for (const_iterator i = indices_.begin(); i != indices_.end(); ++i) {
+			uint32_t v = *i;
+			if (inRange) {
+				if (prev + 1 != v) {
+					impl::appendStr(s, prev);
+					inRange = false;
+					s += ',';
+					impl::appendStr(s, v);
+				}
+			} else {
+				if (prev + 1 == v) {
+					// start range
+					s += '-';
+					inRange = true;
+				} else {
+					if (!s.empty()) s += ',';
+					impl::appendStr(s, v);
+				}
+			}
+			prev = v;
+		}
+		if (inRange) {
+			impl::appendStr(s, prev);
+		}
+		return s;
+	}
+	size_t size() const { return indices_.size(); }
+	uint32_t get(uint32_t idx) const
+	{
+		assert(idx < size());
+		const_iterator it = indices_.begin();
+		std::advance(it, idx);
+		return *it;
+	}
 	void put(const char *label = NULL) const
 	{
 		if (label) printf("%s: ", label);
-		std::string s;
-		s.reserve(size() * 3);
-		for (const_iterator i = begin(), ie = end(); i != ie; ++i) {
-			char buf[16];
-			snprintf(buf, sizeof(buf), "%d ", *i);
-			s += buf;
-		}
-		if (size() > 2 && *indices_.rbegin() - *begin() + 1 == size()) {
-			printf("[%u %u]\n", *begin(), *indices_.rbegin());
-		} else {
-			printf("%s\n", s.c_str());
-		}
+		printf("%s\n", getStr().c_str());
 	}
 };
 #endif
