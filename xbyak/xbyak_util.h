@@ -881,7 +881,7 @@ bool setStr(T& x, const char *str)
 #define XBYAK_CPUMASK_N 6
 #endif
 #ifndef XBYAK_CPUMASK_BITN
-#define XBYAK_CPUMASK_BITN 10
+#define XBYAK_CPUMASK_BITN 10 // max number of logical cpu = 1024
 #endif
 #if XBYAK_CPUMASK_COMPACT == 1
 /*
@@ -1276,23 +1276,52 @@ inline uint32_t popcnt(uint64_t mask)
 
 #ifdef _WIN32
 
+typedef std::vector<uint32_t> U32Vec;
 typedef SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX ProcInfo;
 
+// return total logical cpus if sucessful, 0 if failed
+inline uint32_t getGroupAcc(U32Vec& v)
+{
+	DWORD len = 0;
+	GetLogicalProcessorInformationEx(RelationGroup, NULL, &len);
+	std::vector<char> buf(len);
+	if (!GetLogicalProcessorInformationEx(RelationGroup, reinterpret_cast<ProcInfo*>(buf.data()), &len)) {
+		return 0;
+	}
+	const auto& entry = *reinterpret_cast<const ProcInfo*>(buf.data());
+	const GROUP_RELATIONSHIP& gr = entry.Group;
+
+	const uint32_t n = gr.ActiveGroupCount;
+	if (n == 0) return 0;
+
+	v.resize(n);
+
+	uint32_t acc = 0;
+	for (uint32_t g = 0; g < n; g++) {
+		v[g] = acc;
+		acc += gr.GroupInfo[g].ActiveProcessorCount;
+	}
+	return acc;
+}
+
 // return number of physical cores if successful, 0 if failed
-static inline uint32_t getCores(std::vector<LogicalCpu>& cpus, bool isHybrid) {
+static inline uint32_t getCores(std::vector<LogicalCpu>& cpus, bool isHybrid, const U32Vec& groupAcc) {
 	DWORD len = 0;
 	GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &len);
 	std::vector<char> buf(len);
 	if (!GetLogicalProcessorInformationEx(RelationProcessorCore, reinterpret_cast<ProcInfo*>(buf.data()), &len)) return 0;
+
 	// get core indices
 	const char *p = buf.data();
 	const char *end = p + len;
 	uint32_t coreIdx = 0;
+
 	while (p < end) {
 		const auto& entry = *reinterpret_cast<const ProcInfo*>(p);
 		if (entry.Relationship == RelationProcessorCore) {
 			const PROCESSOR_RELATIONSHIP& core = entry.Processor;
 			LogicalCpu cpu;
+			cpu.coreId = coreIdx++;
 			if (!isHybrid) {
 				cpu.coreType = Standard;
 			} else if (core.EfficiencyClass > 0) {
@@ -1300,19 +1329,20 @@ static inline uint32_t getCores(std::vector<LogicalCpu>& cpus, bool isHybrid) {
 			} else {
 				cpu.coreType = Efficient;
 			}
-			cpu.coreId = coreIdx++;
-#if 1
+
 			const GROUP_AFFINITY* masks = core.GroupMask;
-			uint32_t n = 0;
 			for (WORD i = 0; i < core.GroupCount; i++) {
-				n += popcnt(masks[i].Mask);
-			}
-#else
-			uint64_t mask = core.GroupMask[0].Mask;
-			uint32_t n = uint32_t(popcnt(mask));
-#endif
-			for (uint32_t i = 0; i < n; i++) {
-				cpus.push_back(cpu);
+				const WORD group = masks[i].Group;
+				const KAFFINITY m = masks[i].Mask;
+				const uint32_t base = groupAcc[group];
+
+				for (uint32_t b = 0; b < sizeof(KAFFINITY) * 8; b++) {
+					if (m & (KAFFINITY(1) << b)) {
+						const uint32_t idx = base + b;
+						if (idx >= cpus.size()) return 0;
+						cpus[idx] = cpu;
+					}
+				}
 			}
 		}
 		p += entry.Size;
@@ -1320,51 +1350,42 @@ static inline uint32_t getCores(std::vector<LogicalCpu>& cpus, bool isHybrid) {
 	return coreIdx;
 }
 
-inline std::vector<uint32_t> getGroupAcc()
+inline bool convertMask(CpuMask& mask, const U32Vec& groupAcc, const CACHE_RELATIONSHIP& cache)
 {
-	uint32_t n = GetActiveProcessorGroupCount();
-	std::vector<uint32_t> v(n, 0);
-	uint32_t acc = 0;
-	for (uint32_t g = 0; g < n; g++) {
-		v[g] = acc;
-		acc += GetActiveProcessorCount(WORD(g));
-	}
-	return v;
-}
-
-inline CpuMask convertMask(const std::vector<uint32_t>& groupAcc, const CACHE_RELATIONSHIP& cache)
-{
-	CpuMask out;
 	const GROUP_AFFINITY* masks = cache.GroupMasks;
 
-	uint32_t acc = 0;
 	for (WORD i = 0; i < cache.GroupCount; i++) {
 		const WORD group = masks[i].Group;
 		const KAFFINITY m = masks[i].Mask;
+		const uint32_t base = groupAcc[group];
 
-		const size_t bitWidth = sizeof(KAFFINITY) * 8;
-		for (uint32_t b = 0; b < bitWidth; b++) {
+		for (uint32_t b = 0; b < sizeof(KAFFINITY) * 8; b++) {
 			if (m & (KAFFINITY(1) << b)) {
-				out.append(acc + b);
+				if (!mask.append(base + b)) return false;
 			}
 		}
-		acc += groupAcc[group];
 	}
-	return out;
+	return true;
 }
 
 inline bool initCpuTopology(CpuTopology& cpuTopo)
 {
-	cpuTopo.physicalCoreNum_ = getCores(cpuTopo.logicalCpus_, cpuTopo.isHybrid());
+	U32Vec groupAcc;
+	uint32_t logicalCpuNum = getGroupAcc(groupAcc);
+	if (logicalCpuNum == 0) return false;
+	if (logicalCpuNum >= (1u << XBYAK_CPUMASK_BITN)) return false;
+
+	cpuTopo.logicalCpus_.assign(logicalCpuNum, LogicalCpu());
+	cpuTopo.physicalCoreNum_ = getCores(cpuTopo.logicalCpus_, cpuTopo.isHybrid(), groupAcc);
 	if (cpuTopo.physicalCoreNum_ == 0) return false;
 
 	DWORD len = 0;
 	GetLogicalProcessorInformationEx(RelationCache, NULL, &len);
 	std::vector<char> buf(len);
 	if (!GetLogicalProcessorInformationEx(RelationCache, reinterpret_cast<ProcInfo*>(buf.data()), &len)) return false;
+
 	const char *p = buf.data();
 	const char *end = p + len;
-	const std::vector<uint32_t> groupAcc = getGroupAcc();
 
 	while (p < end) {
 		const auto& entry = *reinterpret_cast<const ProcInfo*>(p);
@@ -1383,9 +1404,10 @@ inline bool initCpuTopology(CpuTopology& cpuTopo)
 				type = L3;
 			}
 			if (type != CACHE_UNKNOWN) {
-				CpuMask mask = convertMask(groupAcc, cache);
+				CpuMask mask;
+				if (!convertMask(mask, groupAcc, cache)) return false;
 				for (const auto& i : mask) {
-					assert(i < cpuTopo.logicalCpus_.size());
+					if (i >= cpuTopo.logicalCpus_.size()) return false;
 					cpuTopo.logicalCpus_[i].cache[type].size = cache.CacheSize;
 					if (cpuTopo.lineSize_ == 0) cpuTopo.lineSize_ = cache.LineSize;
 					cpuTopo.logicalCpus_[i].cache[type].associativity = cache.Associativity;
