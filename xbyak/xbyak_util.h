@@ -1436,9 +1436,7 @@ inline uint32_t readIntFromFile(const char* path) {
 	if (!wf.f) return 0;
 	uint32_t val = 0;
 	int n = fscanf(wf.f, "%u", &val);
-	assert(n == 1);
-	(void)n;
-	return val;
+	return (n == 1) ? val : 0;
 }
 
 inline bool fileExists(const char* path) {
@@ -1446,32 +1444,14 @@ inline bool fileExists(const char* path) {
 	return wf.f != 0;
 }
 
-inline void parseCpuList(const char* path, CpuMask& mask) {
+inline bool parseCpuList(CpuMask& mask, const char* path) {
 	WrapFILE wf(path);
-	if (!wf.f) return;
+	if (!wf.f) return false;
 	char buf[1024];
-	if (fgets(buf, sizeof(buf), wf.f)) {
-		// Parse ranges like "0-3" or "0,2,4-7"
-		char* p = buf;
-		while (*p) {
-			if (*p == '\n') break;
-			uint32_t start = 0, end = 0;
-			if (sscanf(p, "%u", &start) == 1) {
-				while (*p && *p != '-' && *p != ',' && *p != '\n') p++;
-				if (*p == '-') {
-					p++;
-					if (sscanf(p, "%u", &end) == 1) {
-						for (uint32_t i = start; i <= end; i++) mask.append(i);
-						while (*p && *p != ',' && *p != '\n') p++;
-					}
-				} else {
-					mask.append(start);
-				}
-			}
-			if (*p == ',') p++;
-			else break;
-		}
-	}
+	if (!fgets(buf, sizeof(buf), wf.f)) return false;
+	size_t n = strlen(buf);
+	if (n > 0 && buf[n - 1] == '\n') buf[n - 1] = '\0';
+	return setStr(mask, buf);
 }
 
 inline bool initCpuTopology(CpuTopology& cpuTopo)
@@ -1559,12 +1539,14 @@ inline bool initCpuTopology(CpuTopology& cpuTopo)
 				if (wf.f) {
 					char sizeStr[32];
 					if (fgets(sizeStr, sizeof(sizeStr), wf.f)) {
-						uint32_t size = 0;
-						char unit = 'K';
-						sscanf(sizeStr, "%u%c", &size, &unit);
-						if (unit == 'K' || unit == 'k') cache.size = size * 1024;
-						else if (unit == 'M' || unit == 'm') cache.size = size * 1024 * 1024;
-						else cache.size = size;
+						char *endp;
+						uint32_t size = (uint32_t)strtoul(sizeStr, &endp, 10);
+						if (size > 0) {
+							char unit = *endp;
+							if (unit == 'K' || unit == 'k') cache.size = size * 1024;
+							else if (unit == 'M' || unit == 'm') cache.size = size * 1024 * 1024;
+							else if (unit == '\0' || unit == '\n') cache.size = size;
+						}
 					}
 				}
 			}
@@ -1577,7 +1559,7 @@ inline bool initCpuTopology(CpuTopology& cpuTopo)
 			// Read shared CPU list
 			snprintf(path, sizeof(path),
 				"/sys/devices/system/cpu/cpu%u/cache/index%u/shared_cpu_list", cpuIdx, cacheIdx);
-			parseCpuList(path, cache.sharedCpuIndices);
+			parseCpuList(cache.sharedCpuIndices, path);
 		}
 	}
 
@@ -1585,21 +1567,23 @@ inline bool initCpuTopology(CpuTopology& cpuTopo)
 	if (isHybrid) {
 		// For hybrid systems, read P-core and E-core lists from sysfs
 		CpuMask pCoreMask;
-		parseCpuList("/sys/devices/cpu_core/cpus", pCoreMask);
-		// Set Performance core types
-		for (CpuMask::const_iterator it = pCoreMask.begin(); it != pCoreMask.end(); ++it) {
-			uint32_t cpuIdx = *it;
-			if (cpuIdx < maxCpu) {
-				cpuTopo.logicalCpus_[cpuIdx].coreType = Performance;
+		if (parseCpuList(pCoreMask, "/sys/devices/cpu_core/cpus")) {
+			// Set Performance core types
+			for (CpuMask::const_iterator it = pCoreMask.begin(); it != pCoreMask.end(); ++it) {
+				uint32_t cpuIdx = *it;
+				if (cpuIdx < maxCpu) {
+					cpuTopo.logicalCpus_[cpuIdx].coreType = Performance;
+				}
 			}
 		}
 		CpuMask eCoreMask;
-		parseCpuList("/sys/devices/cpu_atom/cpus", eCoreMask);
-		// Set Efficient core types
-		for (CpuMask::const_iterator it = eCoreMask.begin(); it != eCoreMask.end(); ++it) {
-			uint32_t cpuIdx = *it;
-			if (cpuIdx < maxCpu) {
-				cpuTopo.logicalCpus_[cpuIdx].coreType = Efficient;
+		if (parseCpuList(eCoreMask, "/sys/devices/cpu_atom/cpus")) {
+			// Set Efficient core types
+			for (CpuMask::const_iterator it = eCoreMask.begin(); it != eCoreMask.end(); ++it) {
+				uint32_t cpuIdx = *it;
+				if (cpuIdx < maxCpu) {
+					cpuTopo.logicalCpus_[cpuIdx].coreType = Efficient;
+				}
 			}
 		}
 	}
