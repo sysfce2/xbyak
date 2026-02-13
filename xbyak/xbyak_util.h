@@ -973,7 +973,8 @@ public:
 	// v should be monotonically increasing
 	bool append(uint32_t v)
 	{
-		if (v > mask) return false;
+		uint32_t prev = 0, n = 0;
+		if (v > mask) goto ERR;
 		// When adding for the first time, treat as discrete value
 		if (empty()) {
 			a_ = v;
@@ -981,8 +982,8 @@ public:
 			return true;
 		}
 		if (!range_) {
-			const uint32_t prev = get_a(n_);
-			if (v <= prev) return false;
+			prev = get_a(n_);
+			if (v <= prev) goto ERR;
 			// If there's one discrete value and it forms an interval with the new value, switch to interval mode
 			if (n_ == 0 && prev + 1 == v) {
 				set_a(1, 1);
@@ -990,28 +991,31 @@ public:
 				n_ = 1;
 				return true;
 			}
-			if (n_ >= N - 1) return false;
+			if (n_ >= N - 1) goto ERR;
 			// Add discrete value
 			n_++;
 			set_a(n_, v);
 			return true;
 		}
 		// If the value to add is 1 greater than the end of the current interval
-		const uint32_t n = get_a(n_);
-		const uint32_t prev = get_a(n_ - 1) + n;
-		if (prev >= v) return false;
+		n = get_a(n_);
+		prev = get_a(n_ - 1) + n;
+		if (prev >= v) goto ERR;
 		if (prev + 1 == v) {
 			// Increase the interval length by one
 			set_a(n_, n + 1);
 			return true;
 		} else {
-			if (n_ >= N - 1) return false;
+			if (n_ >= N - 1) goto ERR;
 			// If not continuous with the previous interval
 			// Add a new interval [v]
 			set_a(n_ + 1, v);
 			n_ += 2;
 			return true;
 		}
+	ERR:
+		XBYAK_THROW_RET(ERR_INVALID_CPUMASK_INDEX, false)
+		return false;
 	}
 	// str = "(int|range)[,(int|range)]*"
 	// range = int-int
@@ -1371,11 +1375,11 @@ inline bool convertMask(CpuMask& mask, const U32Vec& groupAcc, const CACHE_RELAT
 inline bool initCpuTopology(CpuTopology& cpuTopo)
 {
 	U32Vec groupAcc;
-	uint32_t logicalCpuNum = getGroupAcc(groupAcc);
+	const uint32_t logicalCpuNum = getGroupAcc(groupAcc);
 	if (logicalCpuNum == 0) return false;
 	if (logicalCpuNum >= (1u << XBYAK_CPUMASK_BITN)) return false;
 
-	cpuTopo.logicalCpus_.assign(logicalCpuNum, LogicalCpu());
+	cpuTopo.logicalCpus_.resize(logicalCpuNum);
 	cpuTopo.physicalCoreNum_ = getCores(cpuTopo.logicalCpus_, cpuTopo.isHybrid(), groupAcc);
 	if (cpuTopo.physicalCoreNum_ == 0) return false;
 
@@ -1439,11 +1443,6 @@ inline uint32_t readIntFromFile(const char* path) {
 	return (n == 1) ? val : 0;
 }
 
-inline bool fileExists(const char* path) {
-	WrapFILE wf(path);
-	return wf.f != 0;
-}
-
 inline bool parseCpuList(CpuMask& mask, const char* path) {
 	WrapFILE wf(path);
 	if (!wf.f) return false;
@@ -1456,97 +1455,77 @@ inline bool parseCpuList(CpuMask& mask, const char* path) {
 
 inline bool initCpuTopology(CpuTopology& cpuTopo)
 {
-	// Count online CPUs
-	char path[256];
-	uint32_t maxCpu = 0;
-	for (;;) {
-		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%u", maxCpu);
-		if (!fileExists(path)) break;
-		maxCpu++;
-	}
+	const uint32_t logicalCpuNum = sysconf(_SC_NPROCESSORS_ONLN);
 
-	if (maxCpu == 0) return false;
+	if (logicalCpuNum == 0) return false;
+	if (logicalCpuNum >= (1u << XBYAK_CPUMASK_BITN)) return false;
 
-	// Check if this is a hybrid system
-	bool isHybrid = cpuTopo.isHybrid();
+	cpuTopo.logicalCpus_.resize(logicalCpuNum);
+	uint32_t maxPhisicalIdx = 0;
 
-	// Initialize logical CPUs
-	cpuTopo.logicalCpus_.resize(maxCpu);
-
-	uint32_t physicalCoreNum = 0;
-
-	// Read topology for each CPU
-	for (uint32_t cpuIdx = 0; cpuIdx < maxCpu; cpuIdx++) {
+	for (uint32_t cpuIdx = 0; cpuIdx < logicalCpuNum; cpuIdx++) {
+		char path[256];
 		LogicalCpu& logCpu = cpuTopo.logicalCpus_[cpuIdx];
 
-		// Read core ID
 		snprintf(path, sizeof(path),
 			"/sys/devices/system/cpu/cpu%u/topology/core_id", cpuIdx);
 		logCpu.coreId = readIntFromFile(path);
-		if (logCpu.coreId > physicalCoreNum) physicalCoreNum = logCpu.coreId;
+		maxPhisicalIdx = (std::max)(maxPhisicalIdx, logCpu.coreId);
 
-		// Initialize all cores to Standard type
 		logCpu.coreType = Standard;
 
-		// Read cache information
 		for (uint32_t cacheIdx = 0; cacheIdx < CACHE_TYPE_NUM; cacheIdx++) {
-			CacheType cacheType;
+			CacheType cacheType = CACHE_UNKNOWN;
 
 			// Map cache index to cache type
-			snprintf(path, sizeof(path),
-				"/sys/devices/system/cpu/cpu%u/cache/index%u/type", cpuIdx, cacheIdx);
 			{
-				WrapFILE wf(path);
-				if (!wf.f) continue;
-
+				snprintf(path, sizeof(path),
+					"/sys/devices/system/cpu/cpu%u/cache/index%u/type", cpuIdx, cacheIdx);
 				char typeStr[32];
-				if (fgets(typeStr, sizeof(typeStr), wf.f)) {
+				WrapFILE wf(path);
+
+				if (wf.f && fgets(typeStr, sizeof(typeStr), wf.f)) {
 					if (strncmp(typeStr, "Instruction", 11) == 0) {
 						cacheType = L1i;
 					} else if (strncmp(typeStr, "Data", 4) == 0) {
 						// Determine level
-						char levelPath[256];
-						snprintf(levelPath, sizeof(levelPath),
+						char path[256];
+						snprintf(path, sizeof(path),
 							"/sys/devices/system/cpu/cpu%u/cache/index%u/level", cpuIdx, cacheIdx);
-						uint32_t level = readIntFromFile(levelPath);
-						if (level == 1) cacheType = L1d;
-						else if (level == 2) cacheType = L2;
-						else if (level == 3) cacheType = L3;
-						else { continue; }
+						switch (readIntFromFile(path)) {
+						case 1: cacheType = L1d; break;
+						case 2: cacheType = L2; break;
+						case 3: cacheType = L3; break;
+						default: break;;
+						}
 					} else if (strncmp(typeStr, "Unified", 7) == 0) {
-						char levelPath[256];
-						snprintf(levelPath, sizeof(levelPath),
+						snprintf(path, sizeof(path),
 							"/sys/devices/system/cpu/cpu%u/cache/index%u/level", cpuIdx, cacheIdx);
-						uint32_t level = readIntFromFile(levelPath);
-						if (level == 2) cacheType = L2;
-						else if (level == 3) cacheType = L3;
-						else { continue; }
-					} else {
-						continue;
+						switch (readIntFromFile(path)) {
+						case 2: cacheType = L2; break;
+						case 3: cacheType = L3; break;
+						default: break;;
+						}
 					}
-				} else {
-					continue;
 				}
 			}
-
-			CpuCache& cache = cpuTopo.logicalCpus_[cpuIdx].cache[cacheType];
+			if (cacheType == CACHE_UNKNOWN) continue;
+			CpuCache& cache = logCpu.cache[cacheType];
 
 			// Read cache size
-			snprintf(path, sizeof(path),
-				"/sys/devices/system/cpu/cpu%u/cache/index%u/size", cpuIdx, cacheIdx);
 			{
+				snprintf(path, sizeof(path),
+					"/sys/devices/system/cpu/cpu%u/cache/index%u/size", cpuIdx, cacheIdx);
+				char sizeStr[32];
 				WrapFILE wf(path);
-				if (wf.f) {
-					char sizeStr[32];
-					if (fgets(sizeStr, sizeof(sizeStr), wf.f)) {
-						char *endp;
-						uint32_t size = (uint32_t)strtoul(sizeStr, &endp, 10);
-						if (size > 0) {
-							char unit = *endp;
-							if (unit == 'K' || unit == 'k') cache.size = size * 1024;
-							else if (unit == 'M' || unit == 'm') cache.size = size * 1024 * 1024;
-							else if (unit == '\0' || unit == '\n') cache.size = size;
-						}
+				if (wf.f && fgets(sizeStr, sizeof(sizeStr), wf.f)) {
+					char *endp;
+					uint32_t size = (uint32_t)strtoul(sizeStr, &endp, 10);
+					switch (*endp) {
+					case '\0': case '\n': cache.size = size; break;
+					case 'K': case 'k':   cache.size = size * 1024; break;
+					case 'M': case 'm':   cache.size = size * 1024 * 1024; break;
+					default: break;
 					}
 				}
 			}
@@ -1560,10 +1539,12 @@ inline bool initCpuTopology(CpuTopology& cpuTopo)
 			snprintf(path, sizeof(path),
 				"/sys/devices/system/cpu/cpu%u/cache/index%u/shared_cpu_list", cpuIdx, cacheIdx);
 			parseCpuList(cache.sharedCpuIndices, path);
+
 		}
 	}
 
 	// Assign core types for hybrid architectures
+	const bool isHybrid = cpuTopo.isHybrid();
 	if (isHybrid) {
 		// For hybrid systems, read P-core and E-core lists from sysfs
 		CpuMask pCoreMask;
@@ -1571,7 +1552,7 @@ inline bool initCpuTopology(CpuTopology& cpuTopo)
 			// Set Performance core types
 			for (CpuMask::const_iterator it = pCoreMask.begin(); it != pCoreMask.end(); ++it) {
 				uint32_t cpuIdx = *it;
-				if (cpuIdx < maxCpu) {
+				if (cpuIdx < logicalCpuNum) {
 					cpuTopo.logicalCpus_[cpuIdx].coreType = Performance;
 				}
 			}
@@ -1581,7 +1562,7 @@ inline bool initCpuTopology(CpuTopology& cpuTopo)
 			// Set Efficient core types
 			for (CpuMask::const_iterator it = eCoreMask.begin(); it != eCoreMask.end(); ++it) {
 				uint32_t cpuIdx = *it;
-				if (cpuIdx < maxCpu) {
+				if (cpuIdx < logicalCpuNum) {
 					cpuTopo.logicalCpus_[cpuIdx].coreType = Efficient;
 				}
 			}
@@ -1591,7 +1572,7 @@ inline bool initCpuTopology(CpuTopology& cpuTopo)
 	// Read coherency line size
 	cpuTopo.lineSize_ = readIntFromFile("/sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size");
 
-	cpuTopo.physicalCoreNum_ = physicalCoreNum + 1;
+	cpuTopo.physicalCoreNum_ = maxPhisicalIdx + 1;
 	return true;
 }
 #else // Other OS (e.g., macOS)
