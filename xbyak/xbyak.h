@@ -174,7 +174,7 @@ namespace Xbyak {
 
 enum {
 	DEFAULT_MAX_CODE_SIZE = 4096,
-	VERSION = 0x7332 /* 0xABCD = A.BC(.D) */
+	VERSION = 0x7333 /* 0xABCD = A.BC(.D) */
 };
 
 #ifndef MIE_INTEGER_TYPE_DEFINED
@@ -254,6 +254,7 @@ enum {
 	ERR_BAD_ENCODING_MODE,
 	ERR_CANT_USE_ABCDH,
 	ERR_CANT_INIT_CPUTOPOLOGY,
+	ERR_INVALID_CPUMASK_INDEX,
 	ERR_INTERNAL // Put it at last.
 };
 
@@ -315,6 +316,7 @@ inline const char *ConvertErrorToString(int err)
 		"bad encoding mode",
 		"can't use [abcd]h with rex",
 		"can't init CpuTopology",
+		"invalid cpumask index",
 		"internal error"
 	};
 	assert(ERR_INTERNAL + 1 == sizeof(errTbl) / sizeof(*errTbl));
