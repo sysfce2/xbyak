@@ -1,5 +1,6 @@
 # History
 
+* 2026/Feb/13 ver 7.33.3 CpuTopology supports UWP (Windows)
 * 2026/Feb/10 ver 7.33.2 allow cmpxchg16b with xword
 * 2026/Feb/10 ver 7.33 change the string format of CpuMask
 * 2026/Feb/09 ver 7.32 remove some instructions referenced in Intel 319433-059
